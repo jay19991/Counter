@@ -78,9 +78,22 @@
 </div>
 
 <script>
+/*
+  Script improvements:
+  - Only script changed (no style edits).
+  - Use webkitSpeechRecognition on start (iOS/GitHub Pages friendly).
+  - Tokenized exact matching (Unicode-aware) for English/Hindi/Gujarati.
+  - Deduplicate interim->final updates by tracking previous transcript per result index.
+  - Auto-restart when iOS/Safari stops (controlled by `keepListening` flag).
+*/
+
 let count = 0;
-let recognition;
+let recognition = null;
 let listening = false;
+let keepListening = false;
+
+// store last processed transcript per result index (to compute diffs)
+const processedTranscripts = new Map();
 
 const countEl = document.getElementById("count");
 const targetEl = document.getElementById("target");
@@ -96,19 +109,51 @@ function resetCounter() {
   count = 0;
   updateCountDisplay();
   statusEl.textContent = "Status: counter reset";
+  // clear processed transcripts so repeats can be counted fresh
+  processedTranscripts.clear();
 }
 
-function setupRecognition() {
+// Unicode-aware tokenizer: split on anything that isn't a letter/number/underscore
+// works for Indic scripts as well (requires 'u' flag)
+function tokenize(text) {
+  if (!text) return [];
+  // normalize spaces and trim
+  const cleaned = text.trim();
+  // split on any sequence of non-letter/non-number characters
+  return cleaned.split(/[^\p{L}\p{N}_]+/u).filter(Boolean);
+}
+
+// count exact token matches (case folding for Latin; for indic scripts lowercase is no-op)
+function countTokensInText(text, target) {
+  if (!text) return 0;
+  const tgt = target.trim();
+  if (!tgt) return 0;
+  const tgtLower = tgt.toLowerCase();
+  const tokens = tokenize(text);
+  let found = 0;
+  for (const t of tokens) {
+    // compare in a Unicode-safe way: lowercase for latin scripts, direct compare otherwise
+    const tokenToCompare = (/[A-Za-z]/.test(t) || /[A-Za-z]/.test(tgt)) ? t.toLowerCase() : t;
+    if (tokenToCompare === tgtLower) found++;
+  }
+  return found;
+}
+
+// Build or (re)create recognition object inside the user gesture (Start button)
+function createRecognition() {
+  // Prefer webkitSpeechRecognition on iOS/GitHub Pages
   const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
   if (!SpeechRecognition) {
-    statusEl.textContent = "SpeechRecognition not supported on this browser";
+    statusEl.textContent = "SpeechRecognition not supported in this browser";
     return null;
   }
 
   const recog = new SpeechRecognition();
+
+  // Keep interim results to capture fast speech, but dedupe (see processedTranscripts)
   recog.continuous = true;
-  recog.interimResults = true;      // <<< IMPORTANT FOR FAST COUNTING
-  recog.lang = langEl.value;
+  recog.interimResults = true;
+  recog.lang = langEl.value || 'en-US';
 
   recog.onstart = () => {
     listening = true;
@@ -118,49 +163,113 @@ function setupRecognition() {
   recog.onend = () => {
     listening = false;
     statusEl.textContent = "Stopped";
+    // auto-restart if user hasn't pressed Stop
+    if (keepListening) {
+      // small delay to avoid tight restart loops
+      setTimeout(() => {
+        try {
+          recog.start();
+        } catch (e) {
+          // ignore if start fails
+        }
+      }, 250);
+    }
+  };
+
+  recog.onerror = (ev) => {
+    // show brief status but keep listening where possible
+    console.warn("Recognition error", ev);
+    statusEl.textContent = "Error: " + (ev.error || ev.message || "unknown");
   };
 
   recog.onresult = (event) => {
-    const target = targetEl.value.trim().toLowerCase();
-    const maxLimit = Math.min(50000, Number(maxEl.value));
-
-    // Process EVERY interim + final transcript
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      const spoken = event.results[i][0].transcript.toLowerCase();
-
-      // split for rapid repeating
-      const words = spoken.split(/\s+/);
-
-      words.forEach(word => {
-        if (word === target) {
-          count++;
-          if (count > maxLimit) count = maxLimit;
-        }
-      });
+    const targetRaw = targetEl.value || "";
+    const target = targetRaw.trim();
+    if (!target) {
+      statusEl.textContent = "Status: set a target word first";
+      return;
     }
+    const maxLimit = Math.min(50000, Number(maxEl.value) || 50000);
 
-    updateCountDisplay();
+    // iterate results starting at event.resultIndex (new results)
+    for (let ri = event.resultIndex; ri < event.results.length; ri++) {
+      const result = event.results[ri];
+      const transcript = result[0].transcript.trim();
+
+      // get previously processed transcript for this result index (if any)
+      const prev = processedTranscripts.get(ri) || "";
+
+      // If identical to previous, skip (no new content)
+      if (transcript === prev) continue;
+
+      // compute difference: count occurrences in new transcript minus occurrences in previous
+      const newCount = countTokensInText(transcript, target);
+      const prevCount = countTokensInText(prev, target);
+
+      const delta = Math.max(0, newCount - prevCount);
+
+      if (delta > 0) {
+        count = Math.min(maxLimit, count + delta);
+        updateCountDisplay();
+      }
+
+      // store current transcript for this result index (so next interim update can diff)
+      processedTranscripts.set(ri, transcript);
+    }
   };
 
   return recog;
 }
 
-// Start listening
-document.getElementById("startBtn").onclick = () => {
-  if (!recognition) recognition = setupRecognition();
-  if (!recognition) return;
-  if (!listening) recognition.start();
-};
+// Start listening (user gesture)
+document.getElementById("startBtn").addEventListener("click", () => {
+  // recreate recognition each start to ensure it's created inside user gesture (iOS)
+  if (recognition) {
+    try { recognition.stop(); } catch(e) {}
+    recognition = null;
+  }
 
-// Stop
-document.getElementById("stopBtn").onclick = () => {
-  if (recognition && listening) recognition.stop();
-};
+  recognition = createRecognition();
+  if (!recognition) return;
+
+  // keep listening until user explicitly stops
+  keepListening = true;
+  try {
+    recognition.start();
+  } catch (e) {
+    // some browsers throw if start called twice quickly
+    try { setTimeout(() => recognition.start(), 200); } catch (err) {}
+  }
+});
+
+// Stop listening
+document.getElementById("stopBtn").addEventListener("click", () => {
+  keepListening = false;
+  if (recognition && listening) {
+    try { recognition.stop(); } catch(e) {}
+  }
+});
 
 // Reset ANYTIME
-document.getElementById("resetBtn").onclick = resetCounter;
+document.getElementById("resetBtn").addEventListener("click", resetCounter);
 
-// Initialize display
+// reflect language change while running: recreate recognition on change
+langEl.addEventListener("change", () => {
+  if (recognition && listening) {
+    // restart recognition with new lang
+    keepListening = true;
+    try { recognition.stop(); } catch(e) {}
+    // small delay then start anew
+    setTimeout(() => {
+      try {
+        recognition = createRecognition();
+        recognition.start();
+      } catch (e) {}
+    }, 200);
+  }
+});
+
+// ensure count display initialized
 updateCountDisplay();
 </script>
 
