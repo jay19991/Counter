@@ -91,12 +91,11 @@ function resetCounter() {
 }
 
 function setupRecognition() {
-  const SpeechRecognition = window.webkitSpeechRecognition; // iOS + GitHub Pages fix
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
     statusEl.textContent = "SpeechRecognition not supported on this browser";
     return null;
   }
-
   const recog = new SpeechRecognition();
   recog.continuous = true;
   recog.interimResults = false;
@@ -110,19 +109,14 @@ function setupRecognition() {
   recog.onend = () => {
     listening = false;
     statusEl.textContent = "Stopped";
-
-    // Auto-restart for iOS Safari
-    if (autoRestart) {
-      setTimeout(() => recog.start(), 300);
-    }
   };
 
   recog.onresult = (event) => {
-    const spoken = event.results[event.results.length - 1][0].transcript.toLowerCase();
+    const text = event.results[event.results.length - 1][0].transcript.toLowerCase();
     const target = targetEl.value.trim().toLowerCase();
     const maxLimit = Math.min(50000, Number(maxEl.value));
 
-    if (spoken.includes(target)) {
+    if (text.includes(target)) {
       count++;
       if (count > maxLimit) count = maxLimit;
       updateCountDisplay();
@@ -132,22 +126,22 @@ function setupRecognition() {
   return recog;
 }
 
-let autoRestart = true;
-
+// Start listening
 document.getElementById("startBtn").onclick = () => {
   if (!recognition) recognition = setupRecognition();
   if (!recognition) return;
-  autoRestart = true;
   if (!listening) recognition.start();
 };
 
+// Stop
 document.getElementById("stopBtn").onclick = () => {
-  autoRestart = false;
   if (recognition && listening) recognition.stop();
 };
 
+// Reset ANYTIME
 document.getElementById("resetBtn").onclick = resetCounter;
 
+// Initialize display
 updateCountDisplay();
 </script>
 
