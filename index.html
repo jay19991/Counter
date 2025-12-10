@@ -56,7 +56,7 @@
   <h2>Jay Patel - Spoken Word Counter</h2>
 
   <label>Word to Count</label>
-  <input id="target" type="text" value="Radha">
+  <input id="target" type="text" value="RAM">
 
   <label>Max Count (up to 50,000)</label>
   <input id="max" type="number" value="50000" min="1" max="50000">
@@ -107,9 +107,7 @@ function setupRecognition() {
 
   const recog = new SpeechRecognition();
   recog.continuous = true;
-  recog.interimResults = false;
-
-  // Set language (English, Hindi, Gujarati)
+  recog.interimResults = true;      // <<< IMPORTANT FOR FAST COUNTING
   recog.lang = langEl.value;
 
   recog.onstart = () => {
@@ -123,15 +121,25 @@ function setupRecognition() {
   };
 
   recog.onresult = (event) => {
-    const spoken = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
     const target = targetEl.value.trim().toLowerCase();
     const maxLimit = Math.min(50000, Number(maxEl.value));
 
-    if (spoken.includes(target)) {
-      count++;
-      if (count > maxLimit) count = maxLimit;
-      updateCountDisplay();
+    // Process EVERY interim + final transcript
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const spoken = event.results[i][0].transcript.toLowerCase();
+
+      // split for rapid repeating
+      const words = spoken.split(/\s+/);
+
+      words.forEach(word => {
+        if (word === target) {
+          count++;
+          if (count > maxLimit) count = maxLimit;
+        }
+      });
     }
+
+    updateCountDisplay();
   };
 
   return recog;
