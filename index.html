@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JP Word Counter</title>
+
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #111827;
+    color: #e5e7eb;
+    margin: 0;
+    padding: 20px;
+  }
+  .container {
+    max-width: 500px;
+    margin: auto;
+    background: #1f2937;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.4);
+  }
+  h2 { margin-top: 0; }
+  input, button, select {
+    width: 100%;
+    padding: 12px;
+    margin-top: 10px;
+    border-radius: 8px;
+    border: none;
+    font-size: 16px;
+  }
+  button {
+    cursor: pointer;
+    background: #2563eb;
+    color: white;
+  }
+  button.stop { background: #6b7280; }
+  button.reset { background: #dc2626; }
+  .count-display {
+    font-size: 60px;
+    margin: 20px 0;
+    text-align: center;
+    color: #22c55e;
+  }
+  .status {
+    font-size: 14px;
+    margin-top: 10px;
+    color: #9ca3af;
+  }
+</style>
+</head>
+
+<body>
+<div class="container">
+  <h2>Jay Patel - Spoken Word Counter</h2>
+
+  <label>Word to Count</label>
+  <input id="target" type="text" value="RAM">
+
+  <label>Max Count (up to 50,000)</label>
+  <input id="max" type="number" value="50000" min="1" max="50000">
+
+  <div class="count-display" id="count">0</div>
+
+  <button id="startBtn">Start Listening</button>
+  <button id="stopBtn" class="stop">Stop</button>
+  <button id="resetBtn" class="reset">Reset</button>
+
+  <div class="status" id="status">Status: idle</div>
+</div>
+
+<script>
+let count = 0;
+let recognition;
+let listening = false;
+
+const countEl = document.getElementById("count");
+const targetEl = document.getElementById("target");
+const maxEl = document.getElementById("max");
+const statusEl = document.getElementById("status");
+
+function updateCountDisplay() {
+  countEl.textContent = count;
+}
+
+function resetCounter() {
+  count = 0;
+  updateCountDisplay();
+  statusEl.textContent = "Status: counter reset";
+}
+
+function setupRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    statusEl.textContent = "SpeechRecognition not supported on this browser";
+    return null;
+  }
+  const recog = new SpeechRecognition();
+  recog.continuous = true;
+  recog.interimResults = false;
+  recog.lang = "en-US";
+
+  recog.onstart = () => {
+    listening = true;
+    statusEl.textContent = "Listening…";
+  };
+
+  recog.onend = () => {
+    listening = false;
+    statusEl.textContent = "Stopped";
+  };
+
+  recog.onresult = (event) => {
+    const text = event.results[event.results.length - 1][0].transcript.toLowerCase();
+    const target = targetEl.value.trim().toLowerCase();
+    const maxLimit = Math.min(50000, Number(maxEl.value));
+
+    if (text.includes(target)) {
+      count++;
+      if (count > maxLimit) count = maxLimit;
+      updateCountDisplay();
+    }
+  };
+
+  return recog;
+}
+
+// Start listening
+document.getElementById("startBtn").onclick = () => {
+  if (!recognition) recognition = setupRecognition();
+  if (!recognition) return;
+  if (!listening) recognition.start();
+};
+
+// Stop
+document.getElementById("stopBtn").onclick = () => {
+  if (recognition && listening) recognition.stop();
+};
+
+// Reset ANYTIME
+document.getElementById("resetBtn").onclick = resetCounter;
+
+// Initialize display
+updateCountDisplay();
+</script>
+
+</body>
+</html>
