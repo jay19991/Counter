@@ -90,7 +90,14 @@ let listening = false;
 let detectedLanguage = null;
 let restarting = false;
 
-const CONFIDENCE_THRESHOLD = 0.6; // Noise suppression
+// Noise suppression
+const CONFIDENCE_THRESHOLD = 0.6; 
+
+// Queue system for rapid speech
+let wordQueue = 0;
+let queueTimer = null;
+const QUEUE_DEBOUNCE_MS = 300;
+
 const countEl = document.getElementById("count");
 const targetEl = document.getElementById("target");
 const maxEl = document.getElementById("max");
@@ -101,7 +108,7 @@ const statusEl = document.getElementById("status");
 const ua = navigator.userAgent.toLowerCase();
 const isSafari = (ua.includes("safari") && !ua.includes("chrome") && !ua.includes("crios") && !ua.includes("android"));
 
-// Display count
+// Update display
 function updateCountDisplay() {
     countEl.textContent = count;
 }
@@ -109,12 +116,14 @@ function updateCountDisplay() {
 // Reset counter
 function resetCounter() {
     count = 0;
+    wordQueue = 0;
     detectedLanguage = null;
+    if (queueTimer) clearTimeout(queueTimer);
     updateCountDisplay();
     statusEl.textContent = "Status: counter reset";
 }
 
-// Detect language (Chrome only)
+// Detect language from text
 function detectLanguageFromText(text) {
     if (isSafari) return null;
     if (/[\u0A80-\u0AFF]/.test(text)) return "gu-IN";
@@ -122,13 +131,33 @@ function detectLanguageFromText(text) {
     return "en-US";
 }
 
-// Count all occurrences of the target word in text
+// Count occurrences in transcript
 function countOccurrences(text, target) {
     text = text.toLowerCase();
     target = target.toLowerCase();
     const regex = new RegExp(`\\b${target}\\b`, "g");
     const matches = text.match(regex);
     return matches ? matches.length : 0;
+}
+
+// Flush the queue
+function flushQueue() {
+    if (wordQueue > 0) {
+        const maxLimit = Math.min(50000, Number(maxEl.value));
+        count += wordQueue;
+        if (count > maxLimit) count = maxLimit;
+        updateCountDisplay();
+        wordQueue = 0;
+    }
+    queueTimer = null;
+}
+
+// Queue words detected
+function enqueueWords(number) {
+    wordQueue += number;
+    if (!queueTimer) {
+        queueTimer = setTimeout(flushQueue, QUEUE_DEBOUNCE_MS);
+    }
 }
 
 // Create speech recognition
@@ -141,7 +170,7 @@ function createRecognition(lang = "en-US") {
 
     const recog = new SR();
     recog.continuous = true;
-    recog.interimResults = true; // catch fast speech
+    recog.interimResults = true; 
     recog.lang = lang;
 
     recog.onstart = () => {
@@ -162,7 +191,7 @@ function createRecognition(lang = "en-US") {
 
     recog.onresult = (event) => {
         const resultObj = event.results[event.results.length - 1][0];
-        if (resultObj.confidence < CONFIDENCE_THRESHOLD) return; // noise suppression
+        if (resultObj.confidence < CONFIDENCE_THRESHOLD) return; 
 
         const text = resultObj.transcript;
         const target = targetEl.value;
@@ -182,13 +211,10 @@ function createRecognition(lang = "en-US") {
             }
         }
 
-        // Count all occurrences in transcript
+        // Count all occurrences and add to queue
         const matches = countOccurrences(text, target);
         if (matches > 0) {
-            const maxLimit = Math.min(50000, Number(maxEl.value));
-            count += matches;
-            if (count > maxLimit) count = maxLimit;
-            updateCountDisplay();
+            enqueueWords(matches);
         }
     };
 
