@@ -64,7 +64,15 @@
 
 		<label>Enter Word to Count</label>
 		<input id="target" type="text" value="Radha">
-		<p></p>
+
+		<label>Language</label>
+		<select id="langSelect">
+			<option value="auto">Auto (Chrome only)</option>
+			<option value="en-US">English</option>
+			<option value="gu-IN">Gujarati</option>
+			<option value="hi-IN">Hindi</option>
+		</select>
+
 		<label>Max Count (up to 50,000)</label>
 		<input id="max" type="number" value="50000" min="1" max="50000">
 
@@ -83,11 +91,15 @@ let recognition;
 let listening = false;
 let detectedLanguage = null;
 let restarting = false;
+let lastHeardTime = 0;
 
 const countEl = document.getElementById("count");
 const targetEl = document.getElementById("target");
-const maxEl = document.getElementById("max");
-const statusEl = document.getElementById("status");
+const maxEl      = document.getElementById("max");
+const langSelect = document.getElementById("langSelect");
+const statusEl   = document.getElementById("status");
+
+const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 
 // Update counter display
 function updateCountDisplay() {
@@ -102,22 +114,38 @@ function resetCounter() {
     statusEl.textContent = "Status: counter reset";
 }
 
-// Detect language by character range
+// Auto language detect ONLY for Chrome/Android
 function detectLanguageFromText(text) {
-    if (/[\u0A80-\u0AFF]/.test(text)) return "gu-IN";       // Gujarati
-    if (/[\u0900-\u097F]/.test(text)) return "hi-IN";       // Hindi/Devanagari
-    return "en-US";                                         // Default English
+    if (isSafari) return null;  // SAFARI = no auto detection
+    if (/[\u0A80-\u0AFF]/.test(text)) return "gu-IN"; // Gujarati
+    if (/[\u0900-\u097F]/.test(text)) return "hi-IN"; // Hindi
+    return "en-US"; // English default
 }
 
-// Create SpeechRecognition instance
+// Noise-resistant keyword detection
+function keywordMatch(spoken, target) {
+    spoken = spoken.trim().toLowerCase();
+    target = target.trim().toLowerCase();
+
+    // Reject empty or small junk
+    if (spoken.length < 2) return false;
+
+    // Tokenize spoken phrase
+    const tokens = spoken.split(/\s+/);
+
+    // Exact match inside tokens
+    return tokens.includes(target);
+}
+
+// Create recognition object
 function createRecognition(lang = "en-US") {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
         statusEl.textContent = "SpeechRecognition not supported on this browser";
         return null;
     }
 
-    const recog = new SpeechRecognition();
+    const recog = new SR();
     recog.continuous = true;
     recog.interimResults = false;
     recog.lang = lang;
@@ -130,27 +158,24 @@ function createRecognition(lang = "en-US") {
     recog.onend = () => {
         listening = false;
         if (!restarting) statusEl.textContent = "Stopped";
-        // Auto-restart for Safari/iOS stability
-        if (!restarting && detectionComplete()) safeRestart();
+
+        // Safari needs restart delay
+        if (!restarting) safeRestart();
     };
 
     recog.onerror = (e) => {
-        console.log("SpeechRecognition error:", e);
-        if (e.error === "no-speech" || e.error === "network" || e.error === "aborted") {
-            safeRestart();
-        }
+        console.log("Recognition error:", e);
+        safeRestart();
     };
 
     recog.onresult = (event) => {
         const text = event.results[event.results.length - 1][0].transcript.trim();
-        const lower = text.toLowerCase();
-        const target = targetEl.value.trim().toLowerCase();
-        const maxLimit = Math.min(50000, Number(maxEl.value));
+        const target = targetEl.value;
 
-        // Auto language detection on the first transcript
-        if (!detectedLanguage) {
+        // Safari skips auto-detection
+        if (!isSafari && langSelect.value === "auto" && !detectedLanguage) {
             detectedLanguage = detectLanguageFromText(text);
-            if (detectedLanguage !== recog.lang) {
+            if (detectedLanguage && detectedLanguage !== recog.lang) {
                 restarting = true;
                 recog.stop();
                 setTimeout(() => {
@@ -162,9 +187,13 @@ function createRecognition(lang = "en-US") {
             }
         }
 
-        // Count word
-        if (lower.includes(target)) {
+        const now = Date.now();
+        if (now - lastHeardTime < 500) return; // noise/echo debounce
+        lastHeardTime = now;
+
+        if (keywordMatch(text, target)) {
             count++;
+            const maxLimit = Math.min(50000, Number(maxEl.value));
             if (count > maxLimit) count = maxLimit;
             updateCountDisplay();
         }
@@ -173,35 +202,31 @@ function createRecognition(lang = "en-US") {
     return recog;
 }
 
-function detectionComplete() {
-    return detectedLanguage !== null;
-}
-
-// Safe restart for iOS/Safari
+// Safe restart for Safari
 function safeRestart() {
     if (!recognition || listening) return;
     restarting = true;
     setTimeout(() => {
-        try {
-            recognition.start();
-        } catch (e) {
-            console.warn("Restart blocked:", e);
-        }
+        try { recognition.start(); }
+        catch(e){ console.log("Restart blocked:", e); }
         restarting = false;
-    }, 400);
+    }, 300);
 }
 
 // Start button
 document.getElementById("startBtn").onclick = () => {
-    if (!recognition) recognition = createRecognition("en-US");
-    if (!recognition) return;
-    if (!listening) recognition.start();
+    const selectedLang = langSelect.value;
+    detectedLanguage   = null;
+
+    let lang = selectedLang === "auto" && !isSafari ? "en-US" : selectedLang;
+
+    recognition = createRecognition(lang);
+    if (recognition) recognition.start();
 };
 
-// Stop button
+// Stop
 document.getElementById("stopBtn").onclick = () => {
     if (recognition && listening) {
-        detectedLanguage = null;
         recognition.stop();
     }
 };
@@ -209,15 +234,11 @@ document.getElementById("stopBtn").onclick = () => {
 // Reset
 document.getElementById("resetBtn").onclick = resetCounter;
 
-// Initial counter update
 updateCountDisplay();
 
-
-// ======== SERVICE WORKER REGISTRATION (Safe Placeholder) ========
+// PWA Service Worker
 if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("service-worker.js").catch(err => {
-        console.log("Service Worker not found yet (this is OK):", err);
-    });
+    navigator.serviceWorker.register("service-worker.js").catch(err => {});
 }
 </script>
 
