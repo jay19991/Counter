@@ -89,21 +89,19 @@ let recognition;
 let listening = false;
 let detectedLanguage = null;
 let restarting = false;
-let lastHeardTime = 0;
-const CONFIDENCE_THRESHOLD = 0.6;  // Noise suppression threshold
-const DEBOUNCE_MS = 500;
 
+const CONFIDENCE_THRESHOLD = 0.6; // Noise suppression
 const countEl = document.getElementById("count");
 const targetEl = document.getElementById("target");
-const maxEl      = document.getElementById("max");
+const maxEl = document.getElementById("max");
 const langSelect = document.getElementById("langSelect");
-const statusEl   = document.getElementById("status");
+const statusEl = document.getElementById("status");
 
 // Safari detection
 const ua = navigator.userAgent.toLowerCase();
 const isSafari = (ua.includes("safari") && !ua.includes("chrome") && !ua.includes("crios") && !ua.includes("android"));
 
-// Update counter display
+// Display count
 function updateCountDisplay() {
     countEl.textContent = count;
 }
@@ -116,7 +114,7 @@ function resetCounter() {
     statusEl.textContent = "Status: counter reset";
 }
 
-// Detect language for Chrome auto
+// Detect language (Chrome only)
 function detectLanguageFromText(text) {
     if (isSafari) return null;
     if (/[\u0A80-\u0AFF]/.test(text)) return "gu-IN";
@@ -124,13 +122,13 @@ function detectLanguageFromText(text) {
     return "en-US";
 }
 
-// Noise-resistant keyword match
-function keywordMatch(spoken, target) {
-    spoken = spoken.trim().toLowerCase();
-    target = target.trim().toLowerCase();
-    if (spoken.length < 2) return false;
-    const tokens = spoken.split(/\s+/);
-    return tokens.includes(target);
+// Count all occurrences of the target word in text
+function countOccurrences(text, target) {
+    text = text.toLowerCase();
+    target = target.toLowerCase();
+    const regex = new RegExp(`\\b${target}\\b`, "g");
+    const matches = text.match(regex);
+    return matches ? matches.length : 0;
 }
 
 // Create speech recognition
@@ -143,7 +141,7 @@ function createRecognition(lang = "en-US") {
 
     const recog = new SR();
     recog.continuous = true;
-    recog.interimResults = false;
+    recog.interimResults = true; // catch fast speech
     recog.lang = lang;
 
     recog.onstart = () => {
@@ -166,10 +164,10 @@ function createRecognition(lang = "en-US") {
         const resultObj = event.results[event.results.length - 1][0];
         if (resultObj.confidence < CONFIDENCE_THRESHOLD) return; // noise suppression
 
-        const text = resultObj.transcript.trim();
+        const text = resultObj.transcript;
         const target = targetEl.value;
 
-        // Chrome auto-language detection
+        // Chrome auto language detection
         if (!isSafari && langSelect.value === "auto" && !detectedLanguage) {
             detectedLanguage = detectLanguageFromText(text);
             if (detectedLanguage && detectedLanguage !== recog.lang) {
@@ -184,13 +182,11 @@ function createRecognition(lang = "en-US") {
             }
         }
 
-        const now = Date.now();
-        if (now - lastHeardTime < DEBOUNCE_MS) return;
-        lastHeardTime = now;
-
-        if (keywordMatch(text, target)) {
-            count++;
+        // Count all occurrences in transcript
+        const matches = countOccurrences(text, target);
+        if (matches > 0) {
             const maxLimit = Math.min(50000, Number(maxEl.value));
+            count += matches;
             if (count > maxLimit) count = maxLimit;
             updateCountDisplay();
         }
@@ -199,7 +195,7 @@ function createRecognition(lang = "en-US") {
     return recog;
 }
 
-// Safari-only safe restart
+// Safari safe restart
 function safeRestart() {
     if (!recognition || listening || !isSafari) return;
     restarting = true;
