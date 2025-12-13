@@ -21,7 +21,12 @@
     border-radius: 12px;
     box-shadow: 0 0 10px rgba(0,0,0,0.4);
   }
-  h2 { margin-top: 0; }
+  .header-flex {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  h2 { margin: 0; }
   table {
     width: 100%;
     border-collapse: collapse;
@@ -39,10 +44,10 @@
     cursor: pointer;
     background: #2563eb;
     color: white;
-    padding: 10px;
+    padding: 10px 16px;
     border: none;
     border-radius: 8px;
-    margin-top: 10px;
+    font-size: 14px;
   }
   .footer {
     font-size: 14px;
@@ -54,7 +59,13 @@
 </head>
 <body>
 <div class="container">
-  <h2>Daily Chant Tracker</h2>
+  <!-- Header with flexbox: title left, button right -->
+  <div class="header-flex">
+    <h2>Daily Chant Tracker</h2>
+    <button id="exportBtn">Export to Excel</button>
+  </div>
+
+  <!-- Daily track table -->
   <table id="dailyTable">
     <thead>
       <tr>
@@ -66,7 +77,8 @@
     </thead>
     <tbody></tbody>
   </table>
-  <button id="exportBtn">Export to Excel</button>
+
+  <!-- Footer -->
   <div class="footer">© 2025 Jay Patel - All Rights Reserved</div>
 </div>
 
