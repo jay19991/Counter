@@ -25,7 +25,7 @@
       padding: 40px;
       border-radius: 12px;
       box-shadow: 0 0 10px rgba(0,0,0,0.4);
-      position: relative; /* needed for top-right positioning */
+      position: relative; /* needed for top-right datetime */
     }
     h2 { margin-top: 0; }
     input, button, select {
@@ -54,7 +54,7 @@
       margin-top: 10px;
       color: #9ca3af;
     }
-    /* New style for datetime display */
+    /* DateTime styling */
     .datetime {
       position: absolute;
       top: 10px;
@@ -68,7 +68,7 @@
 <body>
 
 <div class="container">
-  <!-- Date & Time display on top-right -->
+  <!-- Top-right current date/time -->
   <div class="datetime" id="datetime"></div>
 
   <h2>Jay Patel - Spoken Word Counter</h2>
@@ -101,16 +101,12 @@
    DATETIME DISPLAY
 ========================= */
 const datetimeEl = document.getElementById("datetime");
-
-// Function to update datetime every second
 function updateDateTime() {
   const now = new Date();
-  // Format: YYYY-MM-DD HH:MM:SS
-  const formatted = now.toLocaleString();
-  datetimeEl.textContent = formatted;
+  datetimeEl.textContent = now.toLocaleString();
 }
 setInterval(updateDateTime, 1000);
-updateDateTime(); // initialize immediately
+updateDateTime();
 
 /* =====================================================
    GLOBAL STATE VARIABLES
@@ -148,6 +144,7 @@ function updateCountDisplay() {
   countEl.textContent = count;
 }
 
+// Reset counter
 function resetCounter() {
   count = 0;
   wordQueue = 0;
@@ -193,7 +190,7 @@ function flushQueue() {
 }
 
 /* =====================================================
-   SPEECH RECOGNITION CREATION
+   SPEECH RECOGNITION
 ===================================================== */
 function createRecognition(lang) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -225,9 +222,7 @@ function createRecognition(lang) {
     let finalTranscript = lastFinalTranscript;
 
     for (let i = event.resultIndex; i < event.results.length; i++) {
-      if (event.results[i].isFinal) {
-        finalTranscript += " " + event.results[i][0].transcript;
-      }
+      if (event.results[i].isFinal) finalTranscript += " " + event.results[i][0].transcript;
     }
 
     if (!isSafari && langSelect.value === "auto" && !detectedLanguage) {
@@ -269,6 +264,8 @@ function safeRestart() {
 /* =====================================================
    BUTTON HANDLERS
 ===================================================== */
+
+// Start listening
 document.getElementById("startBtn").onclick = () => {
   manualPause = false;
   lastFinalTranscript = "";
@@ -278,6 +275,7 @@ document.getElementById("startBtn").onclick = () => {
   if (recognition) recognition.start();
 };
 
+// Pause listening
 document.getElementById("pauseBtn").onclick = () => {
   manualPause = true;
   if (recognition) { try { recognition.stop(); } catch(e){} recognition=null; }
@@ -285,7 +283,11 @@ document.getElementById("pauseBtn").onclick = () => {
   statusEl.textContent = "Status: idle";
 };
 
-document.getElementById("resetBtn").onclick = resetCounter;
+// Reset with confirmation dialog
+document.getElementById("resetBtn").onclick = () => {
+  const confirmReset = confirm("Alert! It will reset the counter!\nPress OK to confirm, Cancel to abort.");
+  if (confirmReset) resetCounter();
+};
 
 // Initialize counter display
 updateCountDisplay();
