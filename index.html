@@ -1,68 +1,87 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="JP Word Counter">
-<meta name="theme-color" content="#111827">
-<link rel="manifest" href="manifest.json">
-<title>JP Word Counter</title>
+  <!-- Character encoding -->
+  <meta charset="UTF-8">
 
-<style>
-  body {
-    font-family: Arial, sans-serif;
-    background: #111827;
-    color: #e5e7eb;
-    margin: 0;
-    padding: 20px;
-  }
-  .container {
-    max-width: 300px;
-    margin: auto;
-    background: #1f2937;
-    padding: 40px;
-    border-radius: 12px;
-    box-shadow: 0 0 10px rgba(0,0,0,0.4);
-  }
-  h2 { margin-top: 0; }
-  input, button, select {
-    width: 100%;
-    padding: 12px;
-    margin-top: 10px;
-    border-radius: 8px;
-    border: none;
-    font-size: 16px;
-  }
-  button {
-    cursor: pointer;
-    background: #2563eb;
-    color: white;
-  }
-  button.stop { background: #6b7280; }
-  button.reset { background: #dc2626; }
-  .count-display {
-    font-size: 60px;
-    margin: 20px 0;
-    text-align: center;
-    color: #22c55e;
-  }
-  .status {
-    font-size: 14px;
-    margin-top: 10px;
-    color: #9ca3af;
-  }
-</style>
+  <!-- Mobile responsive viewport -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <!-- Enable PWA-like behavior on iOS -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="JP Word Counter">
+
+  <!-- Theme color for mobile browsers -->
+  <meta name="theme-color" content="#111827">
+
+  <!-- PWA manifest -->
+  <link rel="manifest" href="manifest.json">
+
+  <title>JP Word Counter</title>
+
+  <!-- ===================== -->
+  <!-- STYLES (UNCHANGED) -->
+  <!-- ===================== -->
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #111827;
+      color: #e5e7eb;
+      margin: 0;
+      padding: 20px;
+    }
+    .container {
+      max-width: 300px;
+      margin: auto;
+      background: #1f2937;
+      padding: 40px;
+      border-radius: 12px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.4);
+    }
+    h2 { margin-top: 0; }
+    input, button, select {
+      width: 100%;
+      padding: 12px;
+      margin-top: 10px;
+      border-radius: 8px;
+      border: none;
+      font-size: 16px;
+    }
+    button {
+      cursor: pointer;
+      background: #2563eb;
+      color: white;
+    }
+    button.stop { background: #6b7280; }
+    button.reset { background: #dc2626; }
+    .count-display {
+      font-size: 60px;
+      margin: 20px 0;
+      text-align: center;
+      color: #22c55e;
+    }
+    .status {
+      font-size: 14px;
+      margin-top: 10px;
+      color: #9ca3af;
+    }
+  </style>
 </head>
 
 <body>
+
+<!-- Main UI container -->
 <div class="container">
+
+  <!-- Title -->
   <h2>Jay Patel - Spoken Word Counter</h2>
 
+  <!-- Word input -->
   <label>Enter Word to Count</label>
   <input id="target" type="text" value="Radha">
 
+  <!-- Language selector -->
   <label>Language</label>
   <select id="langSelect">
     <option value="auto">Auto (Chrome only)</option>
@@ -71,32 +90,56 @@
     <option value="hi-IN">Hindi</option>
   </select>
 
+  <!-- Max counter -->
   <label>Max Count (up to 50,000)</label>
   <input id="max" type="number" value="50000" min="1" max="50000">
 
+  <!-- Count display -->
   <div class="count-display" id="count">0</div>
 
+  <!-- Control buttons -->
   <button id="startBtn">Start Listening</button>
-  <button id="stopBtn" class="stop">Stop</button>
+  <button id="pauseBtn" class="stop">Pause</button>
   <button id="resetBtn" class="reset">Reset</button>
 
+  <!-- Status text -->
   <div class="status" id="status">Status: idle</div>
 </div>
 
 <script>
+/* =====================================================
+   GLOBAL STATE VARIABLES
+===================================================== */
+
+// Total word count
 let count = 0;
-let recognition;
+
+// SpeechRecognition instance
+let recognition = null;
+
+// Is microphone currently active
 let listening = false;
+
+// Used to prevent Safari auto-restart
+let manualPause = false;
+
+// Prevents duplicate restarts
 let restarting = false;
+
+// Last detected language (Chrome auto)
 let detectedLanguage = null;
 
-// Transcript tracking
+// Used to track what text was already counted
 let lastFinalTranscript = "";
 
-// Queue system
+// Queue system for fast chanting
 let wordQueue = 0;
 let queueTimer = null;
 const QUEUE_DEBOUNCE_MS = 150;
+
+/* =====================================================
+   DOM REFERENCES
+===================================================== */
 
 const countEl = document.getElementById("count");
 const targetEl = document.getElementById("target");
@@ -104,16 +147,23 @@ const maxEl = document.getElementById("max");
 const langSelect = document.getElementById("langSelect");
 const statusEl = document.getElementById("status");
 
-// Safari detection
+/* =====================================================
+   SAFARI DETECTION
+===================================================== */
+
 const ua = navigator.userAgent.toLowerCase();
 const isSafari = ua.includes("safari") && !ua.includes("chrome") && !ua.includes("crios");
 
-// ---------- Utility Functions ----------
+/* =====================================================
+   UTILITY FUNCTIONS
+===================================================== */
 
+// Update count on screen
 function updateCountDisplay() {
   countEl.textContent = count;
 }
 
+// Reset everything except UI styles
 function resetCounter() {
   count = 0;
   wordQueue = 0;
@@ -124,21 +174,21 @@ function resetCounter() {
   statusEl.textContent = "Status: counter reset";
 }
 
-// Normalize stretched tones & vowels
+// Normalize stretched tones (Raaaaaadha → radha)
 function normalizeText(text) {
   return text
     .toLowerCase()
-    .replace(/(.)\1{2,}/g, "$1") // collapse long repeats
+    .replace(/(.)\1{2,}/g, "$1") // collapse long repeated letters
     .replace(/[^a-z\u0900-\u097F\u0A80-\u0AFF\s]/g, "")
     .trim();
 }
 
-// Tokenize speech safely
+// Split speech into words
 function tokenize(text) {
   return normalizeText(text).split(/\s+/).filter(Boolean);
 }
 
-// Detect language (Chrome only)
+// Detect language from Unicode (Chrome only)
 function detectLanguageFromText(text) {
   if (isSafari) return null;
   if (/[\u0A80-\u0AFF]/.test(text)) return "gu-IN";
@@ -146,7 +196,7 @@ function detectLanguageFromText(text) {
   return "en-US";
 }
 
-// Queue handling
+// Queue fast increments safely
 function enqueueWords(n) {
   wordQueue += n;
   if (!queueTimer) {
@@ -154,6 +204,7 @@ function enqueueWords(n) {
   }
 }
 
+// Flush queue into main counter
 function flushQueue() {
   if (wordQueue > 0) {
     const maxLimit = Math.min(50000, Number(maxEl.value));
@@ -164,7 +215,9 @@ function flushQueue() {
   queueTimer = null;
 }
 
-// ---------- Speech Recognition ----------
+/* =====================================================
+   SPEECH RECOGNITION CREATION
+===================================================== */
 
 function createRecognition(lang) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -185,24 +238,21 @@ function createRecognition(lang) {
 
   recog.onend = () => {
     listening = false;
-    if (isSafari && !restarting) safeRestart();
-    if (!isSafari) statusEl.textContent = "Stopped";
+    // Safari auto-restart only if NOT paused
+    if (isSafari && !manualPause && !restarting) safeRestart();
   };
 
   recog.onerror = () => {
-    if (isSafari) safeRestart();
+    if (isSafari && !manualPause) safeRestart();
   };
 
   recog.onresult = (event) => {
-    let interimTranscript = "";
     let finalTranscript = lastFinalTranscript;
 
+    // Process only final results
     for (let i = event.resultIndex; i < event.results.length; i++) {
-      const res = event.results[i];
-      if (res.isFinal) {
-        finalTranscript += " " + res[0].transcript;
-      } else {
-        interimTranscript += " " + res[0].transcript;
+      if (event.results[i].isFinal) {
+        finalTranscript += " " + event.results[i][0].transcript;
       }
     }
 
@@ -223,9 +273,9 @@ function createRecognition(lang) {
     }
 
     // Count only NEW words
-    const prevTokens = tokenize(lastFinalTranscript);
+    const oldTokens = tokenize(lastFinalTranscript);
     const newTokens = tokenize(finalTranscript);
-    const deltaTokens = newTokens.slice(prevTokens.length);
+    const deltaTokens = newTokens.slice(oldTokens.length);
 
     const target = normalizeText(targetEl.value);
     let matches = 0;
@@ -234,46 +284,60 @@ function createRecognition(lang) {
     });
 
     if (matches > 0) enqueueWords(matches);
-
     lastFinalTranscript = finalTranscript;
   };
 
   return recog;
 }
 
-// Safari safe restart
+// Safari restart safety
 function safeRestart() {
   if (!recognition || listening) return;
   restarting = true;
   setTimeout(() => {
-    try { recognition.start(); } catch(e){}
+    try { recognition.start(); } catch (e) {}
     restarting = false;
   }, 300);
 }
 
-// ---------- Buttons ----------
+/* =====================================================
+   BUTTON HANDLERS
+===================================================== */
 
+// START / RESUME LISTENING
 document.getElementById("startBtn").onclick = () => {
-  let lang = langSelect.value;
-  if (!isSafari && lang === "auto") lang = "en-US";
-  if (lang === "auto") lang = "en-US";
-
+  manualPause = false;
   lastFinalTranscript = "";
   detectedLanguage = null;
+
+  let lang = langSelect.value;
+  if (lang === "auto") lang = "en-US";
+
   recognition = createRecognition(lang);
   if (recognition) recognition.start();
 };
 
-document.getElementById("stopBtn").onclick = () => {
-  if (recognition && listening) recognition.stop();
+// PAUSE LISTENING (COUNTER PRESERVED)
+document.getElementById("pauseBtn").onclick = () => {
+  manualPause = true;
+  if (recognition) {
+    try { recognition.stop(); } catch (e) {}
+    recognition = null;
+  }
+  listening = false;
+  statusEl.textContent = "Status: idle";
 };
 
+// RESET EVERYTHING
 document.getElementById("resetBtn").onclick = resetCounter;
 
-// Init
+// Initialize display
 updateCountDisplay();
 
-// Service Worker
+/* =====================================================
+   SERVICE WORKER (OFFLINE SUPPORT)
+===================================================== */
+
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("service-worker.js").catch(() => {});
 }
