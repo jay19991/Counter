@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Daily Chant Tracker</title>
+<!-- Bootstrap CSS -->
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+<div class="container mt-4">
+  <h2 class="mb-3">Daily Chant Tracker</h2>
+
+  <!-- Export Button -->
+  <button id="exportBtn" class="btn btn-primary mb-3">Export to Excel</button>
+
+  <!-- Table -->
+  <div class="table-responsive">
+    <table class="table table-striped" id="trackTable">
+      <thead class="table-dark">
+        <tr>
+          <th>Date</th>
+          <th>Word</th>
+          <th>Max Count</th>
+          <th>Total Count</th>
+        </tr>
+      </thead>
+      <tbody>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- SheetJS library for Excel export -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.19.0/dist/xlsx.full.min.js"></script>
+<script>
+const tbody = document.querySelector("#trackTable tbody");
+const dailyTrackData = JSON.parse(localStorage.getItem("dailyTrackData") || "[]");
+
+// Render table rows
+dailyTrackData.forEach(item => {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td>${item.date}</td>
+                  <td>${item.word}</td>
+                  <td>${item.maxCount}</td>
+                  <td>${item.totalCount}</td>`;
+  tbody.appendChild(tr);
+});
+
+// Export to Excel
+document.getElementById("exportBtn").onclick = () => {
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.table_to_sheet(document.getElementById("trackTable"));
+  XLSX.utils.book_append_sheet(wb, ws, "ChantData");
+  XLSX.writeFile(wb, "DailyChantTracker.xlsx");
+};
+</script>
+</body>
+</html>

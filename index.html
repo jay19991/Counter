@@ -1,68 +1,80 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="JP Word Counter">
-  <meta name="theme-color" content="#111827">
-  <link rel="manifest" href="manifest.json">
-  <title>JP Word Counter</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="JP Word Counter">
+<meta name="theme-color" content="#111827">
+<link rel="manifest" href="manifest.json">
+<title>JP Word Counter</title>
 
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #111827;
-      color: #e5e7eb;
-      margin: 0;
-      padding: 20px;
-    }
-    .container {
-      max-width: 300px;
-      margin: auto;
-      background: #1f2937;
-      padding: 40px;
-      border-radius: 12px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.4);
-      position: relative; /* needed for top-right datetime */
-    }
-    h2 { margin-top: 0; }
-    input, button, select {
-      width: 100%;
-      padding: 12px;
-      margin-top: 10px;
-      border-radius: 8px;
-      border: none;
-      font-size: 16px;
-    }
-    button {
-      cursor: pointer;
-      background: #2563eb;
-      color: white;
-    }
-    button.stop { background: #6b7280; }
-    button.reset { background: #dc2626; }
-    .count-display {
-      font-size: 60px;
-      margin: 20px 0;
-      text-align: center;
-      color: #22c55e;
-    }
-    .status {
-      font-size: 14px;
-      margin-top: 10px;
-      color: #9ca3af;
-    }
-    /* DateTime styling */
-    .datetime {
-      position: absolute;
-      top: 10px;
-      right: 15px;
-      font-size: 14px;
-      color: #9ca3af;
-    }
-  </style>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #111827;
+    color: #e5e7eb;
+    margin: 0;
+    padding: 20px;
+  }
+  .container {
+    max-width: 300px;
+    margin: auto;
+    background: #1f2937;
+    padding: 40px;
+    border-radius: 12px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.4);
+    position: relative;
+  }
+  h2 { margin-top: 0; }
+  input, button, select {
+    width: 100%;
+    padding: 12px;
+    margin-top: 10px;
+    border-radius: 8px;
+    border: none;
+    font-size: 16px;
+  }
+  button {
+    cursor: pointer;
+    background: #2563eb;
+    color: white;
+  }
+  button.stop { background: #6b7280; }
+  button.reset { background: #dc2626; }
+  .count-display {
+    font-size: 60px;
+    margin: 20px 0;
+    text-align: center;
+    color: #22c55e;
+  }
+  .status {
+    font-size: 14px;
+    margin-top: 10px;
+    color: #9ca3af;
+  }
+  .datetime {
+    position: absolute;
+    top: 10px;
+    right: 15px;
+    font-size: 14px;
+    color: #9ca3af;
+  }
+  .totals {
+    font-size: 14px;
+    margin-top: 5px;
+    color: #9ca3af;
+  }
+  .track-link {
+    display: block;
+    margin-top: 10px;
+    font-size: 14px;
+    color: #2563eb;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+</style>
 </head>
 
 <body>
@@ -72,6 +84,9 @@
   <div class="datetime" id="datetime"></div>
 
   <h2>Jay Patel - Spoken Word Counter</h2>
+
+  <!-- Hyperlink to track.html -->
+  <a class="track-link" href="track.html" target="_blank">View Daily Track →</a>
 
   <label>Enter Word to Count</label>
   <input id="target" type="text" value="Radha">
@@ -94,6 +109,11 @@
   <button id="resetBtn" class="reset">Reset</button>
 
   <div class="status" id="status">Status: idle</div>
+
+  <!-- Today's and Yesterday's total counts -->
+  <div class="totals" id="totals">
+    Today’s Total: 0 &nbsp;&nbsp;|&nbsp;&nbsp; Yesterday’s Total: 0
+  </div>
 </div>
 
 <script>
@@ -108,9 +128,9 @@ function updateDateTime() {
 setInterval(updateDateTime, 1000);
 updateDateTime();
 
-/* =====================================================
+/* =========================
    GLOBAL STATE VARIABLES
-===================================================== */
+========================= */
 let count = 0;
 let recognition = null;
 let listening = false;
@@ -119,30 +139,67 @@ let restarting = false;
 let detectedLanguage = null;
 let lastFinalTranscript = "";
 let wordQueue = 0;
-let queueTimer = null;
 const QUEUE_DEBOUNCE_MS = 150;
 
-/* =====================================================
-   DOM REFERENCES
-===================================================== */
+/* =========================
+   DAILY TRACKING
+========================= */
+let todayTotal = Number(localStorage.getItem("todayTotal") || 0);
+let yesterdayTotal = Number(localStorage.getItem("yesterdayTotal") || 0);
+let dailyTrackData = JSON.parse(localStorage.getItem("dailyTrackData") || "[]");
+
+function updateTotalsDisplay() {
+  document.getElementById("totals").textContent =
+    `Today’s Total: ${todayTotal}  |  Yesterday’s Total: ${yesterdayTotal}`;
+}
+updateTotalsDisplay();
+
+// Check for day rollover at 12:00 AM
+function checkDayChange() {
+  const now = new Date();
+  const lastSavedDay = localStorage.getItem("lastSavedDay");
+  const today = now.toDateString();
+  if (lastSavedDay !== today) {
+    // Save yesterday’s data into dailyTrackData
+    const targetWord = document.getElementById("target").value;
+    const maxCount = document.getElementById("max").value;
+    if (todayTotal > 0) {
+      dailyTrackData.push({
+        date: lastSavedDay || today,
+        word: targetWord,
+        maxCount: Number(maxCount),
+        totalCount: todayTotal
+      });
+    }
+    localStorage.setItem("dailyTrackData", JSON.stringify(dailyTrackData));
+
+    // Move todayTotal to yesterdayTotal
+    yesterdayTotal = todayTotal;
+    todayTotal = 0;
+    localStorage.setItem("todayTotal", todayTotal);
+    localStorage.setItem("yesterdayTotal", yesterdayTotal);
+    localStorage.setItem("lastSavedDay", today);
+    updateTotalsDisplay();
+  }
+}
+setInterval(checkDayChange, 60*1000); // check every minute
+checkDayChange();
+
+/* =========================
+   COUNTER FUNCTIONS
+========================= */
 const countEl = document.getElementById("count");
 const targetEl = document.getElementById("target");
 const maxEl = document.getElementById("max");
 const langSelect = document.getElementById("langSelect");
 const statusEl = document.getElementById("status");
 
-/* =====================================================
-   SAFARI DETECTION
-===================================================== */
+// Safari detection
 const ua = navigator.userAgent.toLowerCase();
 const isSafari = ua.includes("safari") && !ua.includes("chrome") && !ua.includes("crios");
 
-/* =====================================================
-   UTILITY FUNCTIONS
-===================================================== */
-function updateCountDisplay() {
-  countEl.textContent = count;
-}
+// Update display
+function updateCountDisplay() { countEl.textContent = count; }
 
 // Reset counter
 function resetCounter() {
@@ -150,24 +207,20 @@ function resetCounter() {
   wordQueue = 0;
   lastFinalTranscript = "";
   detectedLanguage = null;
-  if (queueTimer) clearTimeout(queueTimer);
   updateCountDisplay();
   statusEl.textContent = "Status: counter reset";
+  todayTotal = 0;
+  localStorage.setItem("todayTotal", todayTotal);
+  updateTotalsDisplay();
 }
 
 // Normalize repeated letters and clean text
 function normalizeText(text) {
-  return text
-    .toLowerCase()
-    .replace(/(.)\1{2,}/g, "$1")
-    .replace(/[^a-z\u0900-\u097F\u0A80-\u0AFF\s]/g, "")
-    .trim();
+  return text.toLowerCase().replace(/(.)\1{2,}/g, "$1").replace(/[^a-z\u0900-\u097F\u0A80-\u0AFF\s]/g,"").trim();
 }
 
 // Tokenize words
-function tokenize(text) {
-  return normalizeText(text).split(/\s+/).filter(Boolean);
-}
+function tokenize(text) { return normalizeText(text).split(/\s+/).filter(Boolean); }
 
 // Detect language from characters
 function detectLanguageFromText(text) {
@@ -188,7 +241,6 @@ function flushQueue() {
   if (wordQueue > 0) {
     const maxLimit = Number(maxEl.value);
     if (count >= maxLimit) {
-      // Already reached max
       alert("Congratulations! Max Count Reached. Please increase counter limit to continue chanting.");
       wordQueue = 0;
       queueTimer = null;
@@ -201,59 +253,44 @@ function flushQueue() {
     } else {
       count = potentialCount;
     }
+    todayTotal += wordQueue;
+    localStorage.setItem("todayTotal", todayTotal);
     updateCountDisplay();
+    updateTotalsDisplay();
     wordQueue = 0;
   }
   queueTimer = null;
 }
 
-/* =====================================================
+/* =========================
    SPEECH RECOGNITION
-===================================================== */
+========================= */
 function createRecognition(lang) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) {
-    statusEl.textContent = "SpeechRecognition not supported";
-    return null;
-  }
+  if (!SR) { statusEl.textContent = "SpeechRecognition not supported"; return null; }
 
   const recog = new SR();
   recog.continuous = true;
   recog.interimResults = true;
   recog.lang = lang;
 
-  recog.onstart = () => {
-    listening = true;
-    statusEl.textContent = "Listening (" + lang + ")…";
-  };
-
-  recog.onend = () => {
-    listening = false;
-    if (isSafari && !manualPause && !restarting) safeRestart();
-  };
-
-  recog.onerror = () => {
-    if (isSafari && !manualPause) safeRestart();
-  };
+  recog.onstart = () => { listening = true; statusEl.textContent = "Listening ("+lang+")…"; };
+  recog.onend = () => { listening = false; if (isSafari && !manualPause && !restarting) safeRestart(); };
+  recog.onerror = () => { if (isSafari && !manualPause) safeRestart(); };
 
   recog.onresult = (event) => {
     let finalTranscript = lastFinalTranscript;
-
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      if (event.results[i].isFinal) finalTranscript += " " + event.results[i][0].transcript;
+    for (let i=event.resultIndex;i<event.results.length;i++) {
+      if (event.results[i].isFinal) finalTranscript += " "+event.results[i][0].transcript;
     }
 
-    if (!isSafari && langSelect.value === "auto" && !detectedLanguage) {
+    if (!isSafari && langSelect.value==="auto" && !detectedLanguage) {
       const detected = detectLanguageFromText(finalTranscript);
       if (detected && detected !== recog.lang) {
         detectedLanguage = detected;
         restarting = true;
         recog.stop();
-        setTimeout(() => {
-          recognition = createRecognition(detected);
-          recognition.start();
-          restarting = false;
-        }, 250);
+        setTimeout(()=>{ recognition=createRecognition(detected); recognition.start(); restarting=false;},250);
         return;
       }
     }
@@ -261,57 +298,45 @@ function createRecognition(lang) {
     const oldTokens = tokenize(lastFinalTranscript);
     const newTokens = tokenize(finalTranscript);
     const deltaTokens = newTokens.slice(oldTokens.length);
-
     const target = normalizeText(targetEl.value);
     let matches = 0;
-    deltaTokens.forEach(t => { if (t === target) matches++; });
-
-    if (matches > 0) enqueueWords(matches);
+    deltaTokens.forEach(t=>{if(t===target)matches++;});
+    if(matches>0)enqueueWords(matches);
     lastFinalTranscript = finalTranscript;
   };
-
   return recog;
 }
 
-function safeRestart() {
-  if (!recognition || listening) return;
-  restarting = true;
-  setTimeout(() => { try { recognition.start(); } catch(e){} restarting=false; }, 300);
-}
+function safeRestart() { if(!recognition||listening)return; restarting=true; setTimeout(()=>{try{recognition.start();}catch(e){} restarting=false;},300); }
 
-/* =====================================================
+/* =========================
    BUTTON HANDLERS
-===================================================== */
-document.getElementById("startBtn").onclick = () => {
-  manualPause = false;
-  lastFinalTranscript = "";
-  detectedLanguage = null;
-  let lang = langSelect.value === "auto" ? "en-US" : langSelect.value;
-  recognition = createRecognition(lang);
-  if (recognition) recognition.start();
+========================= */
+document.getElementById("startBtn").onclick = ()=>{
+  manualPause=false;
+  lastFinalTranscript="";
+  detectedLanguage=null;
+  let lang = langSelect.value==="auto"?"en-US":langSelect.value;
+  recognition=createRecognition(lang);
+  if(recognition)recognition.start();
 };
 
-document.getElementById("pauseBtn").onclick = () => {
-  manualPause = true;
-  if (recognition) { try { recognition.stop(); } catch(e){} recognition=null; }
-  listening = false;
-  statusEl.textContent = "Status: idle";
+document.getElementById("pauseBtn").onclick = ()=>{
+  manualPause=true;
+  if(recognition){try{recognition.stop();}catch(e){} recognition=null;}
+  listening=false;
+  statusEl.textContent="Status: idle";
 };
 
-document.getElementById("resetBtn").onclick = () => {
+document.getElementById("resetBtn").onclick = ()=>{
   const confirmReset = confirm("Alert! It will reset the counter!\nPress OK to confirm, Cancel to abort.");
-  if (confirmReset) resetCounter();
+  if(confirmReset) resetCounter();
 };
 
-// Initialize counter display
 updateCountDisplay();
 
-/* =====================================================
-   SERVICE WORKER
-===================================================== */
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("service-worker.js").catch(() => {});
-}
+if("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js").catch(()=>{}); }
+
 </script>
 </body>
 </html>
