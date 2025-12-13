@@ -88,8 +88,15 @@ let count = 0;
 let recognition;
 let listening = false;
 let restarting = false;
-let lastFinalText = "";
-let lastChromeTime = 0;
+let detectedLanguage = null;
+
+// Transcript tracking
+let lastFinalTranscript = "";
+
+// Queue system
+let wordQueue = 0;
+let queueTimer = null;
+const QUEUE_DEBOUNCE_MS = 150;
 
 const countEl = document.getElementById("count");
 const targetEl = document.getElementById("target");
@@ -97,25 +104,68 @@ const maxEl = document.getElementById("max");
 const langSelect = document.getElementById("langSelect");
 const statusEl = document.getElementById("status");
 
+// Safari detection
 const ua = navigator.userAgent.toLowerCase();
 const isSafari = ua.includes("safari") && !ua.includes("chrome") && !ua.includes("crios");
 
-/* ---------- Normalization ---------- */
-function normalize(t) {
-  return t.toLowerCase()
-    .replace(/(.)\1+/g, "$1")
-    .replace(/[^a-z\u0900-\u097F\u0A80-\u0AFF]/g, "");
-}
+// ---------- Utility Functions ----------
 
-/* ---------- Count ---------- */
-function add(n) {
-  count += n;
-  const max = Math.min(50000, Number(maxEl.value));
-  if (count > max) count = max;
+function updateCountDisplay() {
   countEl.textContent = count;
 }
 
-/* ---------- Speech ---------- */
+function resetCounter() {
+  count = 0;
+  wordQueue = 0;
+  lastFinalTranscript = "";
+  detectedLanguage = null;
+  if (queueTimer) clearTimeout(queueTimer);
+  updateCountDisplay();
+  statusEl.textContent = "Status: counter reset";
+}
+
+// Normalize stretched tones & vowels
+function normalizeText(text) {
+  return text
+    .toLowerCase()
+    .replace(/(.)\1{2,}/g, "$1") // collapse long repeats
+    .replace(/[^a-z\u0900-\u097F\u0A80-\u0AFF\s]/g, "")
+    .trim();
+}
+
+// Tokenize speech safely
+function tokenize(text) {
+  return normalizeText(text).split(/\s+/).filter(Boolean);
+}
+
+// Detect language (Chrome only)
+function detectLanguageFromText(text) {
+  if (isSafari) return null;
+  if (/[\u0A80-\u0AFF]/.test(text)) return "gu-IN";
+  if (/[\u0900-\u097F]/.test(text)) return "hi-IN";
+  return "en-US";
+}
+
+// Queue handling
+function enqueueWords(n) {
+  wordQueue += n;
+  if (!queueTimer) {
+    queueTimer = setTimeout(flushQueue, QUEUE_DEBOUNCE_MS);
+  }
+}
+
+function flushQueue() {
+  if (wordQueue > 0) {
+    const maxLimit = Math.min(50000, Number(maxEl.value));
+    count = Math.min(count + wordQueue, maxLimit);
+    updateCountDisplay();
+    wordQueue = 0;
+  }
+  queueTimer = null;
+}
+
+// ---------- Speech Recognition ----------
+
 function createRecognition(lang) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
@@ -123,88 +173,110 @@ function createRecognition(lang) {
     return null;
   }
 
-  const r = new SR();
-  r.continuous = true;
-  r.interimResults = true;
-  r.lang = lang;
+  const recog = new SR();
+  recog.continuous = true;
+  recog.interimResults = true;
+  recog.lang = lang;
 
-  r.onstart = () => {
+  recog.onstart = () => {
     listening = true;
-    statusEl.textContent = "Listening (" + lang + ")";
+    statusEl.textContent = "Listening (" + lang + ")…";
   };
 
-  r.onend = () => {
+  recog.onend = () => {
     listening = false;
-    if (isSafari && !restarting) restartSafari();
+    if (isSafari && !restarting) safeRestart();
+    if (!isSafari) statusEl.textContent = "Stopped";
   };
 
-  r.onerror = () => {
-    if (isSafari) restartSafari();
+  recog.onerror = () => {
+    if (isSafari) safeRestart();
   };
 
-  r.onresult = (e) => {
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      if (!e.results[i].isFinal) continue;
+  recog.onresult = (event) => {
+    let interimTranscript = "";
+    let finalTranscript = lastFinalTranscript;
 
-      const text = e.results[i][0].transcript.trim();
-      const delta = text.replace(lastFinalText, "").trim();
-      lastFinalText = text;
-
-      if (normalize(delta).includes(normalize(targetEl.value))) {
-        if (isSafari) {
-          add(1);
-        } else {
-          const now = Date.now();
-          if (now - lastChromeTime > 120) {
-            add(1);
-            lastChromeTime = now;
-          }
-        }
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const res = event.results[i];
+      if (res.isFinal) {
+        finalTranscript += " " + res[0].transcript;
+      } else {
+        interimTranscript += " " + res[0].transcript;
       }
     }
+
+    // Auto language switch (Chrome)
+    if (!isSafari && langSelect.value === "auto" && !detectedLanguage) {
+      const detected = detectLanguageFromText(finalTranscript);
+      if (detected && detected !== recog.lang) {
+        detectedLanguage = detected;
+        restarting = true;
+        recog.stop();
+        setTimeout(() => {
+          recognition = createRecognition(detected);
+          recognition.start();
+          restarting = false;
+        }, 250);
+        return;
+      }
+    }
+
+    // Count only NEW words
+    const prevTokens = tokenize(lastFinalTranscript);
+    const newTokens = tokenize(finalTranscript);
+    const deltaTokens = newTokens.slice(prevTokens.length);
+
+    const target = normalizeText(targetEl.value);
+    let matches = 0;
+    deltaTokens.forEach(t => {
+      if (t === target) matches++;
+    });
+
+    if (matches > 0) enqueueWords(matches);
+
+    lastFinalTranscript = finalTranscript;
   };
 
-  return r;
+  return recog;
 }
 
-/* ---------- Safari Restart ---------- */
-function restartSafari() {
+// Safari safe restart
+function safeRestart() {
   if (!recognition || listening) return;
   restarting = true;
   setTimeout(() => {
-    try { recognition.start(); } catch {}
+    try { recognition.start(); } catch(e){}
     restarting = false;
   }, 300);
 }
 
-/* ---------- Start Button (FIXED) ---------- */
+// ---------- Buttons ----------
+
 document.getElementById("startBtn").onclick = () => {
-  statusEl.textContent = "Requesting microphone…";
+  let lang = langSelect.value;
+  if (!isSafari && lang === "auto") lang = "en-US";
+  if (lang === "auto") lang = "en-US";
 
-  navigator.mediaDevices.getUserMedia({ audio: true }).then(() => {
-    const lang = (!isSafari && langSelect.value === "auto")
-      ? "en-US"
-      : langSelect.value;
-
-    lastFinalText = "";
-    lastChromeTime = 0;
-
-    recognition = createRecognition(lang);
-    recognition.start();
-  }).catch(() => {
-    statusEl.textContent = "Microphone permission denied";
-  });
+  lastFinalTranscript = "";
+  detectedLanguage = null;
+  recognition = createRecognition(lang);
+  if (recognition) recognition.start();
 };
 
 document.getElementById("stopBtn").onclick = () => {
   if (recognition && listening) recognition.stop();
 };
 
-document.getElementById("resetBtn").onclick = () => {
-  count = 0;
-  countEl.textContent = 0;
-  statusEl.textContent = "Status: counter reset";
-};
+document.getElementById("resetBtn").onclick = resetCounter;
+
+// Init
+updateCountDisplay();
+
+// Service Worker
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("service-worker.js").catch(() => {});
+}
 </script>
 </body>
 </html>
