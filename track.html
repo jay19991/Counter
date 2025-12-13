@@ -27,11 +27,16 @@
     align-items: center;
   }
   h2 { margin: 0; }
+  .month-display {
+    margin-top: 10px;
+    font-size: 16px;
+    color: #9ca3af;
+  }
   table {
     width: 100%;
     border-collapse: collapse;
     color: #e5e7eb;
-    margin-top: 20px;
+    margin-top: 10px;
   }
   th, td {
     padding: 12px;
@@ -42,12 +47,29 @@
   tr:hover { background-color: #111827; }
   button {
     cursor: pointer;
-    background: #2563eb;
-    color: white;
-    padding: 10px 16px;
     border: none;
     border-radius: 8px;
     font-size: 14px;
+  }
+  #exportBtn {
+    background: #2563eb;
+    color: white;
+    padding: 10px 16px;
+  }
+  .nav-buttons {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+    justify-content: flex-start; /* left align */
+  }
+  .nav-buttons button {
+    padding: 8px 12px;
+    background: #f59e0b;
+    color: white;
+  }
+  .nav-buttons button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
   .footer {
     font-size: 14px;
@@ -59,13 +81,16 @@
 </head>
 <body>
 <div class="container">
-  <!-- Header with flexbox: title left, button right -->
+  <!-- Header with title and export button -->
   <div class="header-flex">
     <h2>Daily Chant Tracker</h2>
     <button id="exportBtn">Export to Excel</button>
   </div>
 
-  <!-- Daily track table -->
+  <!-- Display current month/year -->
+  <div class="month-display" id="monthDisplay"></div>
+
+  <!-- Table -->
   <table id="dailyTable">
     <thead>
       <tr>
@@ -78,33 +103,94 @@
     <tbody></tbody>
   </table>
 
+  <!-- Navigation buttons -->
+  <div class="nav-buttons">
+    <button id="prevBtn">Previous</button>
+    <button id="nextBtn">Next</button>
+  </div>
+
   <!-- Footer -->
   <div class="footer">© 2025 Jay Patel - All Rights Reserved</div>
 </div>
 
 <script>
-// --- Load daily track data ---
-function loadDailyTrack() {
-    const dailyTrackData = JSON.parse(localStorage.getItem("dailyTrackData") || "[]");
-    const tbody = document.querySelector("#dailyTable tbody");
-    tbody.innerHTML = "";
-    dailyTrackData.forEach(item => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `<td>${item.date}</td><td>${item.word}</td><td>${item.maxCount}</td><td>${item.total}</td>`;
-        tbody.appendChild(tr);
+// --- Variables ---
+let dailyTrackData = JSON.parse(localStorage.getItem("dailyTrackData") || "[]");
+let currentMonth = new Date().getMonth(); // 0-11
+let currentYear = new Date().getFullYear();
+
+// --- DOM Elements ---
+const tbody = document.querySelector("#dailyTable tbody");
+const monthDisplay = document.getElementById("monthDisplay");
+const prevBtn = document.getElementById("prevBtn");
+const nextBtn = document.getElementById("nextBtn");
+const exportBtn = document.getElementById("exportBtn");
+
+// --- Function to display month name ---
+function getMonthName(monthIndex) {
+    return new Date(currentYear, monthIndex).toLocaleString('default', { month: 'long' });
+}
+
+// --- Filter data for current month ---
+function getMonthData(year, month) {
+    return dailyTrackData.filter(item => {
+        const dateObj = new Date(item.date);
+        return dateObj.getFullYear() === year && dateObj.getMonth() === month;
     });
 }
-loadDailyTrack();
 
-// --- Export to Excel ---
-document.getElementById("exportBtn").onclick = function(){
+// --- Load table ---
+function loadTable() {
+    const monthData = getMonthData(currentYear, currentMonth);
+    monthDisplay.textContent = `${getMonthName(currentMonth)} ${currentYear}`;
+    tbody.innerHTML = "";
+    if(monthData.length === 0) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td colspan="4" style="text-align:center;">No data for this month.</td>`;
+        tbody.appendChild(tr);
+    } else {
+        monthData.forEach(item => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `<td>${item.date}</td><td>${item.word}</td><td>${item.maxCount}</td><td>${item.total}</td>`;
+            tbody.appendChild(tr);
+        });
+    }
+
+    // Disable buttons if no further months
+    prevBtn.disabled = !dailyTrackData.some(d => new Date(d.date).getFullYear() < currentYear || (new Date(d.date).getFullYear() === currentYear && new Date(d.date).getMonth() < currentMonth));
+    nextBtn.disabled = !dailyTrackData.some(d => new Date(d.date).getFullYear() > currentYear || (new Date(d.date).getFullYear() === currentYear && new Date(d.date).getMonth() > currentMonth));
+}
+
+// --- Navigation button handlers ---
+prevBtn.onclick = () => {
+    currentMonth--;
+    if(currentMonth < 0){
+        currentMonth = 11;
+        currentYear--;
+    }
+    loadTable();
+};
+nextBtn.onclick = () => {
+    currentMonth++;
+    if(currentMonth > 11){
+        currentMonth = 0;
+        currentYear++;
+    }
+    loadTable();
+};
+
+// --- Export to Excel (current view only) ---
+exportBtn.onclick = function(){
     const table = document.getElementById("dailyTable");
     let html = table.outerHTML.replace(/ /g, '%20');
     const a = document.createElement("a");
     a.href = 'data:application/vnd.ms-excel,' + html;
-    a.download = 'daily_track.xls';
+    a.download = `daily_track_${currentMonth+1}_${currentYear}.xls`;
     a.click();
 };
+
+// --- Initial load ---
+loadTable();
 </script>
 </body>
 </html>
