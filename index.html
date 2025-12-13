@@ -1,28 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <!-- Character encoding -->
   <meta charset="UTF-8">
-
-  <!-- Mobile responsive viewport -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-
-  <!-- Enable PWA-like behavior on iOS -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="JP Word Counter">
-
-  <!-- Theme color for mobile browsers -->
   <meta name="theme-color" content="#111827">
-
-  <!-- PWA manifest -->
   <link rel="manifest" href="manifest.json">
-
   <title>JP Word Counter</title>
 
-  <!-- ===================== -->
-  <!-- STYLES (UNCHANGED) -->
-  <!-- ===================== -->
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -38,6 +25,7 @@
       padding: 40px;
       border-radius: 12px;
       box-shadow: 0 0 10px rgba(0,0,0,0.4);
+      position: relative; /* needed for top-right positioning */
     }
     h2 { margin-top: 0; }
     input, button, select {
@@ -66,22 +54,28 @@
       margin-top: 10px;
       color: #9ca3af;
     }
+    /* New style for datetime display */
+    .datetime {
+      position: absolute;
+      top: 10px;
+      right: 15px;
+      font-size: 14px;
+      color: #9ca3af;
+    }
   </style>
 </head>
 
 <body>
 
-<!-- Main UI container -->
 <div class="container">
+  <!-- Date & Time display on top-right -->
+  <div class="datetime" id="datetime"></div>
 
-  <!-- Title -->
   <h2>Jay Patel - Spoken Word Counter</h2>
 
-  <!-- Word input -->
   <label>Enter Word to Count</label>
   <input id="target" type="text" value="Radha">
 
-  <!-- Language selector -->
   <label>Language</label>
   <select id="langSelect">
     <option value="auto">Auto (Chrome only)</option>
@@ -90,49 +84,44 @@
     <option value="hi-IN">Hindi</option>
   </select>
 
-  <!-- Max counter -->
   <label>Max Count (up to 50,000)</label>
   <input id="max" type="number" value="50000" min="1" max="50000">
 
-  <!-- Count display -->
   <div class="count-display" id="count">0</div>
 
-  <!-- Control buttons -->
   <button id="startBtn">Start Listening</button>
   <button id="pauseBtn" class="stop">Pause</button>
   <button id="resetBtn" class="reset">Reset</button>
 
-  <!-- Status text -->
   <div class="status" id="status">Status: idle</div>
 </div>
 
 <script>
+/* =========================
+   DATETIME DISPLAY
+========================= */
+const datetimeEl = document.getElementById("datetime");
+
+// Function to update datetime every second
+function updateDateTime() {
+  const now = new Date();
+  // Format: YYYY-MM-DD HH:MM:SS
+  const formatted = now.toLocaleString();
+  datetimeEl.textContent = formatted;
+}
+setInterval(updateDateTime, 1000);
+updateDateTime(); // initialize immediately
+
 /* =====================================================
    GLOBAL STATE VARIABLES
 ===================================================== */
-
-// Total word count
 let count = 0;
-
-// SpeechRecognition instance
 let recognition = null;
-
-// Is microphone currently active
 let listening = false;
-
-// Used to prevent Safari auto-restart
 let manualPause = false;
-
-// Prevents duplicate restarts
 let restarting = false;
-
-// Last detected language (Chrome auto)
 let detectedLanguage = null;
-
-// Used to track what text was already counted
 let lastFinalTranscript = "";
-
-// Queue system for fast chanting
 let wordQueue = 0;
 let queueTimer = null;
 const QUEUE_DEBOUNCE_MS = 150;
@@ -140,7 +129,6 @@ const QUEUE_DEBOUNCE_MS = 150;
 /* =====================================================
    DOM REFERENCES
 ===================================================== */
-
 const countEl = document.getElementById("count");
 const targetEl = document.getElementById("target");
 const maxEl = document.getElementById("max");
@@ -150,20 +138,16 @@ const statusEl = document.getElementById("status");
 /* =====================================================
    SAFARI DETECTION
 ===================================================== */
-
 const ua = navigator.userAgent.toLowerCase();
 const isSafari = ua.includes("safari") && !ua.includes("chrome") && !ua.includes("crios");
 
 /* =====================================================
    UTILITY FUNCTIONS
 ===================================================== */
-
-// Update count on screen
 function updateCountDisplay() {
   countEl.textContent = count;
 }
 
-// Reset everything except UI styles
 function resetCounter() {
   count = 0;
   wordQueue = 0;
@@ -174,21 +158,18 @@ function resetCounter() {
   statusEl.textContent = "Status: counter reset";
 }
 
-// Normalize stretched tones (Raaaaaadha → radha)
 function normalizeText(text) {
   return text
     .toLowerCase()
-    .replace(/(.)\1{2,}/g, "$1") // collapse long repeated letters
+    .replace(/(.)\1{2,}/g, "$1")
     .replace(/[^a-z\u0900-\u097F\u0A80-\u0AFF\s]/g, "")
     .trim();
 }
 
-// Split speech into words
 function tokenize(text) {
   return normalizeText(text).split(/\s+/).filter(Boolean);
 }
 
-// Detect language from Unicode (Chrome only)
 function detectLanguageFromText(text) {
   if (isSafari) return null;
   if (/[\u0A80-\u0AFF]/.test(text)) return "gu-IN";
@@ -196,15 +177,11 @@ function detectLanguageFromText(text) {
   return "en-US";
 }
 
-// Queue fast increments safely
 function enqueueWords(n) {
   wordQueue += n;
-  if (!queueTimer) {
-    queueTimer = setTimeout(flushQueue, QUEUE_DEBOUNCE_MS);
-  }
+  if (!queueTimer) queueTimer = setTimeout(flushQueue, QUEUE_DEBOUNCE_MS);
 }
 
-// Flush queue into main counter
 function flushQueue() {
   if (wordQueue > 0) {
     const maxLimit = Math.min(50000, Number(maxEl.value));
@@ -218,7 +195,6 @@ function flushQueue() {
 /* =====================================================
    SPEECH RECOGNITION CREATION
 ===================================================== */
-
 function createRecognition(lang) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
@@ -238,7 +214,6 @@ function createRecognition(lang) {
 
   recog.onend = () => {
     listening = false;
-    // Safari auto-restart only if NOT paused
     if (isSafari && !manualPause && !restarting) safeRestart();
   };
 
@@ -249,14 +224,12 @@ function createRecognition(lang) {
   recog.onresult = (event) => {
     let finalTranscript = lastFinalTranscript;
 
-    // Process only final results
     for (let i = event.resultIndex; i < event.results.length; i++) {
       if (event.results[i].isFinal) {
         finalTranscript += " " + event.results[i][0].transcript;
       }
     }
 
-    // Auto language switch (Chrome)
     if (!isSafari && langSelect.value === "auto" && !detectedLanguage) {
       const detected = detectLanguageFromText(finalTranscript);
       if (detected && detected !== recog.lang) {
@@ -272,16 +245,13 @@ function createRecognition(lang) {
       }
     }
 
-    // Count only NEW words
     const oldTokens = tokenize(lastFinalTranscript);
     const newTokens = tokenize(finalTranscript);
     const deltaTokens = newTokens.slice(oldTokens.length);
 
     const target = normalizeText(targetEl.value);
     let matches = 0;
-    deltaTokens.forEach(t => {
-      if (t === target) matches++;
-    });
+    deltaTokens.forEach(t => { if (t === target) matches++; });
 
     if (matches > 0) enqueueWords(matches);
     lastFinalTranscript = finalTranscript;
@@ -290,54 +260,39 @@ function createRecognition(lang) {
   return recog;
 }
 
-// Safari restart safety
 function safeRestart() {
   if (!recognition || listening) return;
   restarting = true;
-  setTimeout(() => {
-    try { recognition.start(); } catch (e) {}
-    restarting = false;
-  }, 300);
+  setTimeout(() => { try { recognition.start(); } catch(e){} restarting=false; }, 300);
 }
 
 /* =====================================================
    BUTTON HANDLERS
 ===================================================== */
-
-// START / RESUME LISTENING
 document.getElementById("startBtn").onclick = () => {
   manualPause = false;
   lastFinalTranscript = "";
   detectedLanguage = null;
-
-  let lang = langSelect.value;
-  if (lang === "auto") lang = "en-US";
-
+  let lang = langSelect.value === "auto" ? "en-US" : langSelect.value;
   recognition = createRecognition(lang);
   if (recognition) recognition.start();
 };
 
-// PAUSE LISTENING (COUNTER PRESERVED)
 document.getElementById("pauseBtn").onclick = () => {
   manualPause = true;
-  if (recognition) {
-    try { recognition.stop(); } catch (e) {}
-    recognition = null;
-  }
+  if (recognition) { try { recognition.stop(); } catch(e){} recognition=null; }
   listening = false;
   statusEl.textContent = "Status: idle";
 };
 
-// RESET EVERYTHING
 document.getElementById("resetBtn").onclick = resetCounter;
 
-// Initialize display
+// Initialize counter display
 updateCountDisplay();
 
 /* =====================================================
-   SERVICE WORKER (OFFLINE SUPPORT)
+   SERVICE WORKER
 ===================================================== */
-
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("service-worker.js").catch(() => {});
 }
