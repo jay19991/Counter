@@ -155,6 +155,7 @@ function resetCounter() {
   statusEl.textContent = "Status: counter reset";
 }
 
+// Normalize repeated letters and clean text
 function normalizeText(text) {
   return text
     .toLowerCase()
@@ -163,10 +164,12 @@ function normalizeText(text) {
     .trim();
 }
 
+// Tokenize words
 function tokenize(text) {
   return normalizeText(text).split(/\s+/).filter(Boolean);
 }
 
+// Detect language from characters
 function detectLanguageFromText(text) {
   if (isSafari) return null;
   if (/[\u0A80-\u0AFF]/.test(text)) return "gu-IN";
@@ -174,15 +177,30 @@ function detectLanguageFromText(text) {
   return "en-US";
 }
 
+// Queue words
 function enqueueWords(n) {
   wordQueue += n;
   if (!queueTimer) queueTimer = setTimeout(flushQueue, QUEUE_DEBOUNCE_MS);
 }
 
+// Flush queue and check max limit
 function flushQueue() {
   if (wordQueue > 0) {
-    const maxLimit = Math.min(50000, Number(maxEl.value));
-    count = Math.min(count + wordQueue, maxLimit);
+    const maxLimit = Number(maxEl.value);
+    if (count >= maxLimit) {
+      // Already reached max
+      alert("Congratulations! Max Count Reached. Please increase counter limit to continue chanting.");
+      wordQueue = 0;
+      queueTimer = null;
+      return;
+    }
+    const potentialCount = count + wordQueue;
+    if (potentialCount >= maxLimit) {
+      count = maxLimit;
+      alert("Congratulations! Max Count Reached. Please increase counter limit to continue chanting.");
+    } else {
+      count = potentialCount;
+    }
     updateCountDisplay();
     wordQueue = 0;
   }
@@ -264,8 +282,6 @@ function safeRestart() {
 /* =====================================================
    BUTTON HANDLERS
 ===================================================== */
-
-// Start listening
 document.getElementById("startBtn").onclick = () => {
   manualPause = false;
   lastFinalTranscript = "";
@@ -275,7 +291,6 @@ document.getElementById("startBtn").onclick = () => {
   if (recognition) recognition.start();
 };
 
-// Pause listening
 document.getElementById("pauseBtn").onclick = () => {
   manualPause = true;
   if (recognition) { try { recognition.stop(); } catch(e){} recognition=null; }
@@ -283,7 +298,6 @@ document.getElementById("pauseBtn").onclick = () => {
   statusEl.textContent = "Status: idle";
 };
 
-// Reset with confirmation dialog
 document.getElementById("resetBtn").onclick = () => {
   const confirmReset = confirm("Alert! It will reset the counter!\nPress OK to confirm, Cancel to abort.");
   if (confirmReset) resetCounter();
