@@ -89,9 +89,8 @@ let count = 0;
 let recognition;
 let listening = false;
 let restarting = false;
-let detectedLanguage = null;
 let lastFinalText = "";
-let lastCountTime = 0;
+let lastChromeCountTime = 0;
 
 /* ================= ELEMENTS ================= */
 const countEl = document.getElementById("count");
@@ -109,18 +108,19 @@ let audioCtx, analyser, mic;
 let peakBuffer = 0;
 let lastPeak = 0;
 
-async function startAudio() {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    mic = audioCtx.createMediaStreamSource(stream);
-    analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 512;
-    mic.connect(analyser);
-    detectPeaks();
+function startAudioSafari() {
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        mic = audioCtx.createMediaStreamSource(stream);
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 512;
+        mic.connect(analyser);
+        detectPeaks();
+    }).catch(()=>{});
 }
 
 function detectPeaks() {
-    if (!isSafari) return;
+    if (!isSafari || !analyser) return;
     const data = new Uint8Array(analyser.frequencyBinCount);
     analyser.getByteFrequencyData(data);
     const energy = data.reduce((a,b)=>a+b,0)/data.length;
@@ -133,22 +133,14 @@ function detectPeaks() {
 }
 
 /* ================= NORMALIZATION ================= */
-function normalize(str) {
-    return str
-        .toLowerCase()
+function normalize(s) {
+    return s.toLowerCase()
         .replace(/(.)\1+/g,"$1")
         .replace(/[^a-z\u0900-\u097F\u0A80-\u0AFF]/g,"");
 }
 
-/* ================= LANGUAGE DETECT ================= */
-function detectLang(text) {
-    if (/[\u0A80-\u0AFF]/.test(text)) return "gu-IN";
-    if (/[\u0900-\u097F]/.test(text)) return "hi-IN";
-    return "en-US";
-}
-
 /* ================= UPDATE COUNT ================= */
-function updateCount(n) {
+function increment(n) {
     count += n;
     const max = Math.min(50000, Number(maxEl.value));
     if (count > max) count = max;
@@ -170,7 +162,7 @@ function createRecognition(lang) {
 
     r.onstart = () => {
         listening = true;
-        statusEl.textContent = "Listening ("+lang+")";
+        statusEl.textContent = "Listening (" + lang + ")";
     };
 
     r.onend = () => {
@@ -184,45 +176,26 @@ function createRecognition(lang) {
 
     r.onresult = (e) => {
         for (let i = e.resultIndex; i < e.results.length; i++) {
-            const res = e.results[i];
-            if (!res.isFinal) continue;
+            if (!e.results[i].isFinal) continue;
 
-            const text = res[0].transcript.trim();
+            const text = e.results[i][0].transcript.trim();
             const delta = text.replace(lastFinalText,"").trim();
             lastFinalText = text;
 
-            if (!isSafari && langSelect.value==="auto" && !detectedLanguage) {
-                const d = detectLang(text);
-                if (d && d !== r.lang) {
-                    restarting = true;
-                    r.stop();
-                    setTimeout(()=>{
-                        recognition = createRecognition(d);
-                        recognition.start();
-                        restarting=false;
-                    },300);
-                    return;
-                }
-            }
-
-            const normDelta = normalize(delta);
-            const normTarget = normalize(targetEl.value);
-
-            if (normDelta.includes(normTarget)) {
+            if (normalize(delta).includes(normalize(targetEl.value))) {
                 if (isSafari) {
-                    updateCount(Math.max(1, peakBuffer));
+                    increment(Math.max(1, peakBuffer));
                     peakBuffer = 0;
                 } else {
                     const now = Date.now();
-                    if (now - lastCountTime > 120) {
-                        updateCount(1);
-                        lastCountTime = now;
+                    if (now - lastChromeCountTime > 120) {
+                        increment(1);
+                        lastChromeCountTime = now;
                     }
                 }
             }
         }
     };
-
     return r;
 }
 
@@ -230,22 +203,24 @@ function createRecognition(lang) {
 function safeRestart() {
     if (!recognition || listening) return;
     restarting = true;
-    setTimeout(()=>{
-        try{ recognition.start(); }catch{}
-        restarting=false;
-    },300);
+    setTimeout(() => {
+        try { recognition.start(); } catch {}
+        restarting = false;
+    }, 300);
 }
 
 /* ================= BUTTONS ================= */
-document.getElementById("startBtn").onclick = async () => {
-    const lang = (!isSafari && langSelect.value==="auto") ? "en-US" : langSelect.value;
-    detectedLanguage = null;
+document.getElementById("startBtn").onclick = () => {
+    const lang = (!isSafari && langSelect.value === "auto") ? "en-US" : langSelect.value;
+
     lastFinalText = "";
     peakBuffer = 0;
-    lastCountTime = 0;
-    if (isSafari) await startAudio();
+    lastChromeCountTime = 0;
+
     recognition = createRecognition(lang);
-    recognition && recognition.start();
+    if (recognition) recognition.start();
+
+    if (isSafari) startAudioSafari();
 };
 
 document.getElementById("stopBtn").onclick = () => {
@@ -254,17 +229,12 @@ document.getElementById("stopBtn").onclick = () => {
 
 document.getElementById("resetBtn").onclick = () => {
     count = 0;
-    lastFinalText = "";
-    peakBuffer = 0;
-    updateCount(0);
+    countEl.textContent = 0;
     statusEl.textContent = "Status: counter reset";
 };
 
 /* ================= INIT ================= */
 countEl.textContent = count;
-if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("service-worker.js").catch(()=>{});
-}
 </script>
 </body>
 </html>
