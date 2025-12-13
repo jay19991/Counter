@@ -132,7 +132,7 @@ updateDateTime();
 /* =========================
    GLOBAL STATE VARIABLES
 ========================= */
-let count = 0;
+let count = 0; // current session counter
 let recognition = null;
 let listening = false;
 let manualPause = false;
@@ -184,7 +184,7 @@ function checkDayChange() {
     updateTotalsDisplay();
   }
 }
-setInterval(checkDayChange, 60*1000); // check every minute
+setInterval(checkDayChange, 60*1000);
 checkDayChange();
 
 /* =========================
@@ -196,14 +196,12 @@ const maxEl = document.getElementById("max");
 const langSelect = document.getElementById("langSelect");
 const statusEl = document.getElementById("status");
 
-// Safari detection
 const ua = navigator.userAgent.toLowerCase();
 const isSafari = ua.includes("safari") && !ua.includes("chrome") && !ua.includes("crios");
 
-// Update display
 function updateCountDisplay() { countEl.textContent = count; }
 
-// Reset counter
+// Reset counter (only session count, not today's total)
 function resetCounter() {
   count = 0;
   wordQueue = 0;
@@ -211,9 +209,6 @@ function resetCounter() {
   detectedLanguage = null;
   updateCountDisplay();
   statusEl.textContent = "Status: counter reset";
-  todayTotal = 0;
-  localStorage.setItem("todayTotal", todayTotal);
-  updateTotalsDisplay();
 }
 
 // Normalize repeated letters and clean text
@@ -224,7 +219,6 @@ function normalizeText(text) {
 // Tokenize words
 function tokenize(text) { return normalizeText(text).split(/\s+/).filter(Boolean); }
 
-// Detect language from characters
 function detectLanguageFromText(text) {
   if (isSafari) return null;
   if (/[\u0A80-\u0AFF]/.test(text)) return "gu-IN";
@@ -238,7 +232,7 @@ function enqueueWords(n) {
   if (!queueTimer) queueTimer = setTimeout(flushQueue, QUEUE_DEBOUNCE_MS);
 }
 
-// Flush queue and check max limit
+// Flush queue and update counts
 function flushQueue() {
   if (wordQueue > 0) {
     const maxLimit = Number(maxEl.value);
@@ -255,6 +249,7 @@ function flushQueue() {
     } else {
       count = potentialCount;
     }
+    // Increment today's total regardless of session
     todayTotal += wordQueue;
     localStorage.setItem("todayTotal", todayTotal);
     updateCountDisplay();
@@ -328,10 +323,11 @@ document.getElementById("pauseBtn").onclick = ()=>{
   if(recognition){try{recognition.stop();}catch(e){} recognition=null;}
   listening=false;
   statusEl.textContent="Status: idle";
+  localStorage.setItem("todayTotal", todayTotal); // save today's total
 };
 
 document.getElementById("resetBtn").onclick = ()=>{
-  const confirmReset = confirm("Alert! It will reset the counter!\nPress OK to confirm, Cancel to abort.");
+  const confirmReset = confirm("Alert! It will reset the session counter!\nPress OK to confirm, Cancel to abort.");
   if(confirmReset) resetCounter();
 };
 
