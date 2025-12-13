@@ -18,7 +18,6 @@
     color: #e5e7eb;
     margin: 0;
     padding: 20px;
-    position: relative; /* for absolute date-time positioning */
   }
   .container {
     max-width: 300px;
@@ -27,6 +26,7 @@
     padding: 40px;
     border-radius: 12px;
     box-shadow: 0 0 10px rgba(0,0,0,0.4);
+    position: relative; /* For date-time positioning */
   }
 
   /* Headings */
@@ -80,22 +80,22 @@
     margin-top: 20px;
   }
 
-  /* Current date-time display at top-right */
+  /* Current date-time display inside container, top-right */
   .date-time {
     font-size: 14px;
     color: #9ca3af;
     position: absolute;
-    top: 10px;
+    top: 20px;
     right: 20px;
   }
 </style>
 </head>
 
 <body>
-<!-- Current date/time top-right -->
-<div class="date-time" id="currentDateTime"></div>
-
 <div class="container">
+  <!-- Current date/time top-right inside container -->
+  <div class="date-time" id="currentDateTime"></div>
+
   <!-- Page header -->
   <h2>Spoken Word Counter</h2>
 
