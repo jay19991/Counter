@@ -11,6 +11,7 @@
 <title>JP Word Counter</title>
 
 <style>
+  /* Body and container styling */
   body {
     font-family: Arial, sans-serif;
     background: #111827;
@@ -25,9 +26,12 @@
     padding: 40px;
     border-radius: 12px;
     box-shadow: 0 0 10px rgba(0,0,0,0.4);
-    position: relative;
   }
+
+  /* Headings */
   h2 { margin-top: 0; }
+
+  /* Inputs, buttons, selects */
   input, button, select {
     width: 100%;
     padding: 12px;
@@ -43,49 +47,48 @@
   }
   button.stop { background: #6b7280; }
   button.reset { background: #dc2626; }
+
+  /* Counter display */
   .count-display {
     font-size: 60px;
     margin: 20px 0;
     text-align: center;
     color: #22c55e;
   }
+
+  /* Status text */
   .status {
     font-size: 14px;
     margin-top: 10px;
     color: #9ca3af;
   }
-  .datetime {
-    position: absolute;
-    top: 10px;
-    right: 15px;
+
+  /* Footer styling, same as status */
+  .footer {
     font-size: 14px;
     color: #9ca3af;
-  }
-  .totals {
-    font-size: 14px;
-    margin-top: 5px;
-    color: #9ca3af;
-  }
-  .track-link {
-    display: block;
-    margin-top: 15px;
-    font-size: 14px;
-    color: #2563eb;
-    text-decoration: underline;
-    cursor: pointer;
     text-align: center;
+    margin-top: 20px;
+  }
+
+  /* Current date-time display */
+  .date-time {
+    font-size: 14px;
+    color: #9ca3af;
+    text-align: right;
   }
 </style>
 </head>
 
 <body>
-
 <div class="container">
-  <!-- Top-right current date/time -->
-  <div class="datetime" id="datetime"></div>
-
+  <!-- Page header -->
   <h2>Jay Patel - Spoken Word Counter</h2>
 
+  <!-- Current date/time -->
+  <div class="date-time" id="currentDateTime"></div>
+
+  <!-- Input fields -->
   <label>Enter Word to Count</label>
   <input id="target" type="text" value="Radha">
 
@@ -100,241 +103,190 @@
   <label>Max Count (up to 50,000)</label>
   <input id="max" type="number" value="50000" min="1" max="50000">
 
+  <!-- Counter display -->
   <div class="count-display" id="count">0</div>
 
+  <!-- Control buttons -->
   <button id="startBtn">Start Listening</button>
   <button id="pauseBtn" class="stop">Pause</button>
   <button id="resetBtn" class="reset">Reset</button>
 
+  <!-- Status -->
   <div class="status" id="status">Status: idle</div>
 
-  <!-- Today's and Yesterday's total counts -->
-  <div class="totals" id="totals">
-    Today’s Total: 0 &nbsp;&nbsp;|&nbsp;&nbsp; Yesterday’s Total: 0
+  <!-- Today/Yesterday totals -->
+  <div class="status" id="totals">Today's Total: 0 & Yesterday's Total: 0</div>
+
+  <!-- Link to daily track page -->
+  <div class="status" style="margin-top:20px;">
+    <a href="track.html" style="color:#9ca3af; text-decoration:none;">View Daily Track</a>
   </div>
 
-  <!-- Hyperlink to track.html at very bottom -->
-  <a class="track-link" href="track.html" target="_blank">View Daily Track →</a>
+  <!-- Footer -->
+  <div class="footer">© 2025 Jay Patel - All Rights Reserved</div>
 </div>
 
 <script>
-/* =========================
-   DATETIME DISPLAY
-========================= */
-const datetimeEl = document.getElementById("datetime");
-function updateDateTime() {
-  const now = new Date();
-  datetimeEl.textContent = now.toLocaleString();
-}
-setInterval(updateDateTime, 1000);
-updateDateTime();
-
-/* =========================
-   GLOBAL STATE VARIABLES
-========================= */
-let count = 0; // current session counter
-let recognition = null;
+// --- Variables ---
+let count = 0;
+let todayTotal = 0;
+let yesterdayTotal = 0;
+let recognition;
 let listening = false;
-let manualPause = false;
-let restarting = false;
 let detectedLanguage = null;
-let lastFinalTranscript = "";
+let restarting = false;
+const CONFIDENCE_THRESHOLD = 0.6; 
 let wordQueue = 0;
 let queueTimer = null;
-const QUEUE_DEBOUNCE_MS = 150;
+const QUEUE_DEBOUNCE_MS = 300;
 
-/* =========================
-   DAILY TRACKING
-========================= */
-let todayTotal = Number(localStorage.getItem("todayTotal") || 0);
-let yesterdayTotal = Number(localStorage.getItem("yesterdayTotal") || 0);
-let dailyTrackData = JSON.parse(localStorage.getItem("dailyTrackData") || "[]");
-
-function updateTotalsDisplay() {
-  document.getElementById("totals").textContent =
-    `Today’s Total: ${todayTotal}  |  Yesterday’s Total: ${yesterdayTotal}`;
-}
-updateTotalsDisplay();
-
-// Check for day rollover at 12:00 AM
-function checkDayChange() {
-  const now = new Date();
-  const lastSavedDay = localStorage.getItem("lastSavedDay");
-  const today = now.toDateString();
-  if (lastSavedDay !== today) {
-    // Save yesterday’s data into dailyTrackData
-    const targetWord = document.getElementById("target").value;
-    const maxCount = document.getElementById("max").value;
-    if (todayTotal > 0) {
-      dailyTrackData.push({
-        date: lastSavedDay || today,
-        word: targetWord,
-        maxCount: Number(maxCount),
-        totalCount: todayTotal
-      });
-    }
-    localStorage.setItem("dailyTrackData", JSON.stringify(dailyTrackData));
-
-    // Move todayTotal to yesterdayTotal
-    yesterdayTotal = todayTotal;
-    todayTotal = 0;
-    localStorage.setItem("todayTotal", todayTotal);
-    localStorage.setItem("yesterdayTotal", yesterdayTotal);
-    localStorage.setItem("lastSavedDay", today);
-    updateTotalsDisplay();
-  }
-}
-setInterval(checkDayChange, 60*1000);
-checkDayChange();
-
-/* =========================
-   COUNTER FUNCTIONS
-========================= */
+// Elements
 const countEl = document.getElementById("count");
 const targetEl = document.getElementById("target");
 const maxEl = document.getElementById("max");
 const langSelect = document.getElementById("langSelect");
 const statusEl = document.getElementById("status");
+const totalsEl = document.getElementById("totals");
+const currentDateTimeEl = document.getElementById("currentDateTime");
 
+// --- Safari detection ---
 const ua = navigator.userAgent.toLowerCase();
-const isSafari = ua.includes("safari") && !ua.includes("chrome") && !ua.includes("crios");
+const isSafari = (ua.includes("safari") && !ua.includes("chrome") && !ua.includes("crios") && !ua.includes("android"));
 
-function updateCountDisplay() { countEl.textContent = count; }
+// --- Update display functions ---
+function updateCountDisplay() {
+    countEl.textContent = count;
+    totalsEl.textContent = `Today's Total: ${todayTotal} & Yesterday's Total: ${yesterdayTotal}`;
+}
 
-// Reset counter (only session count, not today's total)
+// --- Update current date/time ---
+function updateDateTime() {
+    const now = new Date();
+    currentDateTimeEl.textContent = now.toLocaleString();
+}
+setInterval(updateDateTime, 1000);
+updateDateTime();
+
+// --- Reset counter ---
 function resetCounter() {
-  count = 0;
-  wordQueue = 0;
-  lastFinalTranscript = "";
-  detectedLanguage = null;
-  updateCountDisplay();
-  statusEl.textContent = "Status: counter reset";
+    if(confirm("Alert! It will reset the counter!")) {
+        count = 0;
+        wordQueue = 0;
+        if (queueTimer) clearTimeout(queueTimer);
+        updateCountDisplay();
+        statusEl.textContent = "Status: counter reset";
+    }
 }
 
-// Normalize repeated letters and clean text
-function normalizeText(text) {
-  return text.toLowerCase().replace(/(.)\1{2,}/g, "$1").replace(/[^a-z\u0900-\u097F\u0A80-\u0AFF\s]/g,"").trim();
+// --- Check day change ---
+function checkDayChange() {
+    const now = new Date();
+    const lastSavedDay = localStorage.getItem("lastSavedDay");
+    const today = now.toDateString();
+    if (lastSavedDay !== today) {
+        yesterdayTotal = todayTotal;
+        todayTotal = 0;
+        localStorage.setItem("todayTotal", todayTotal);
+        localStorage.setItem("yesterdayTotal", yesterdayTotal);
+        localStorage.setItem("lastSavedDay", today);
+
+        // Update daily track data
+        let dailyTrackData = JSON.parse(localStorage.getItem("dailyTrackData") || "[]");
+        dailyTrackData.push({
+            date: lastSavedDay || today,
+            word: targetEl.value,
+            maxCount: maxEl.value,
+            total: count
+        });
+        localStorage.setItem("dailyTrackData", JSON.stringify(dailyTrackData));
+        count = 0;
+        updateCountDisplay();
+    }
 }
+setInterval(checkDayChange, 60*1000);
 
-// Tokenize words
-function tokenize(text) { return normalizeText(text).split(/\s+/).filter(Boolean); }
-
-function detectLanguageFromText(text) {
-  if (isSafari) return null;
-  if (/[\u0A80-\u0AFF]/.test(text)) return "gu-IN";
-  if (/[\u0900-\u097F]/.test(text)) return "hi-IN";
-  return "en-US";
-}
-
-// Queue words
-function enqueueWords(n) {
-  wordQueue += n;
-  if (!queueTimer) queueTimer = setTimeout(flushQueue, QUEUE_DEBOUNCE_MS);
-}
-
-// Flush queue and update counts
+// --- Queue functions ---
 function flushQueue() {
-  if (wordQueue > 0) {
-    const maxLimit = Number(maxEl.value);
-    if (count >= maxLimit) {
-      alert("Congratulations! Max Count Reached. Please increase counter limit to continue chanting.");
-      wordQueue = 0;
-      queueTimer = null;
-      return;
+    if(wordQueue > 0) {
+        const maxLimit = Math.min(50000, Number(maxEl.value));
+        count += wordQueue;
+        todayTotal += wordQueue;
+        if(count > maxLimit) {
+            alert("Congratulations! Max Count Reached. Please increase counter limit to continue chanting.");
+            count = maxLimit;
+        }
+        if(todayTotal > 50000) todayTotal = 50000;
+        updateCountDisplay();
+        wordQueue = 0;
     }
-    const potentialCount = count + wordQueue;
-    if (potentialCount >= maxLimit) {
-      count = maxLimit;
-      alert("Congratulations! Max Count Reached. Please increase counter limit to continue chanting.");
-    } else {
-      count = potentialCount;
-    }
-    // Increment today's total regardless of session
-    todayTotal += wordQueue;
-    localStorage.setItem("todayTotal", todayTotal);
-    updateCountDisplay();
-    updateTotalsDisplay();
-    wordQueue = 0;
-  }
-  queueTimer = null;
+    queueTimer = null;
+}
+function enqueueWords(number) {
+    wordQueue += number;
+    if(!queueTimer) queueTimer = setTimeout(flushQueue, QUEUE_DEBOUNCE_MS);
 }
 
-/* =========================
-   SPEECH RECOGNITION
-========================= */
-function createRecognition(lang) {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { statusEl.textContent = "SpeechRecognition not supported"; return null; }
+// --- Create speech recognition ---
+function createRecognition(lang = "en-US") {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!SR){ statusEl.textContent = "SpeechRecognition not supported on this browser"; return null; }
 
-  const recog = new SR();
-  recog.continuous = true;
-  recog.interimResults = true;
-  recog.lang = lang;
+    const recog = new SR();
+    recog.continuous = true;
+    recog.interimResults = true;
+    recog.lang = lang;
 
-  recog.onstart = () => { listening = true; statusEl.textContent = "Listening ("+lang+")…"; };
-  recog.onend = () => { listening = false; if (isSafari && !manualPause && !restarting) safeRestart(); };
-  recog.onerror = () => { if (isSafari && !manualPause) safeRestart(); };
+    recog.onstart = () => { listening = true; statusEl.textContent = "Listening (" + lang + ")…"; };
+    recog.onend = () => { listening = false; if(!restarting && isSafari) safeRestart(); if(!isSafari) statusEl.textContent="Idle"; };
+    recog.onerror = (e) => { console.log("Recognition error:", e); if(isSafari) safeRestart(); };
 
-  recog.onresult = (event) => {
-    let finalTranscript = lastFinalTranscript;
-    for (let i=event.resultIndex;i<event.results.length;i++) {
-      if (event.results[i].isFinal) finalTranscript += " "+event.results[i][0].transcript;
-    }
-
-    if (!isSafari && langSelect.value==="auto" && !detectedLanguage) {
-      const detected = detectLanguageFromText(finalTranscript);
-      if (detected && detected !== recog.lang) {
-        detectedLanguage = detected;
-        restarting = true;
-        recog.stop();
-        setTimeout(()=>{ recognition=createRecognition(detected); recognition.start(); restarting=false;},250);
-        return;
-      }
-    }
-
-    const oldTokens = tokenize(lastFinalTranscript);
-    const newTokens = tokenize(finalTranscript);
-    const deltaTokens = newTokens.slice(oldTokens.length);
-    const target = normalizeText(targetEl.value);
-    let matches = 0;
-    deltaTokens.forEach(t=>{if(t===target)matches++;});
-    if(matches>0)enqueueWords(matches);
-    lastFinalTranscript = finalTranscript;
-  };
-  return recog;
+    recog.onresult = (event) => {
+        const resultObj = event.results[event.results.length-1][0];
+        if(resultObj.confidence < CONFIDENCE_THRESHOLD) return;
+        const text = resultObj.transcript;
+        const target = targetEl.value;
+        if(!isSafari && langSelect.value==="auto" && !detectedLanguage){
+            detectedLanguage = /[\u0A80-\u0AFF]/.test(text)?"gu-IN":/[\u0900-\u097F]/.test(text)?"hi-IN":"en-US";
+            if(detectedLanguage !== recog.lang){
+                restarting = true;
+                recog.stop();
+                setTimeout(()=>{ recognition = createRecognition(detectedLanguage); recognition.start(); restarting=false; },250);
+                return;
+            }
+        }
+        const matches = (text.toLowerCase().match(new RegExp(`\\b${target.toLowerCase()}\\b`,"g"))||[]).length;
+        if(matches>0) enqueueWords(matches);
+    };
+    return recog;
 }
 
-function safeRestart() { if(!recognition||listening)return; restarting=true; setTimeout(()=>{try{recognition.start();}catch(e){} restarting=false;},300); }
+// --- Safari safe restart ---
+function safeRestart() {
+    if(!recognition || listening || !isSafari) return;
+    restarting = true;
+    setTimeout(()=>{ try{recognition.start();}catch(e){} restarting=false; },300);
+}
 
-/* =========================
-   BUTTON HANDLERS
-========================= */
-document.getElementById("startBtn").onclick = ()=>{
-  manualPause=false;
-  lastFinalTranscript="";
-  detectedLanguage=null;
-  let lang = langSelect.value==="auto"?"en-US":langSelect.value;
-  recognition=createRecognition(lang);
-  if(recognition)recognition.start();
+// --- Buttons ---
+document.getElementById("startBtn").onclick = () => {
+    let lang = (langSelect.value==="auto"&&!isSafari)?"en-US":(langSelect.value==="auto"?"en-US":langSelect.value);
+    detectedLanguage = null;
+    recognition = createRecognition(lang);
+    if(recognition) recognition.start();
 };
-
-document.getElementById("pauseBtn").onclick = ()=>{
-  manualPause=true;
-  if(recognition){try{recognition.stop();}catch(e){} recognition=null;}
-  listening=false;
-  statusEl.textContent="Status: idle";
-  localStorage.setItem("todayTotal", todayTotal); // save today's total
+document.getElementById("pauseBtn").onclick = () => {
+    if(recognition && listening) recognition.stop();
+    statusEl.textContent="Status: idle";
 };
+document.getElementById("resetBtn").onclick = resetCounter;
 
-document.getElementById("resetBtn").onclick = ()=>{
-  const confirmReset = confirm("Alert! It will reset the session counter!\nPress OK to confirm, Cancel to abort.");
-  if(confirmReset) resetCounter();
-};
-
+// --- Initialize display ---
+todayTotal = Number(localStorage.getItem("todayTotal")||0);
+yesterdayTotal = Number(localStorage.getItem("yesterdayTotal")||0);
 updateCountDisplay();
 
-if("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js").catch(()=>{}); }
-
+// --- Service worker ---
+if("serviceWorker" in navigator){ navigator.serviceWorker.register("service-worker.js").catch(err=>console.log(err)); }
 </script>
 </body>
 </html>
