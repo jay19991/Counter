@@ -68,11 +68,12 @@
   }
   .track-link {
     display: block;
-    margin-top: 10px;
+    margin-top: 15px;
     font-size: 14px;
     color: #2563eb;
     text-decoration: underline;
     cursor: pointer;
+    text-align: center;
   }
 </style>
 </head>
@@ -84,9 +85,6 @@
   <div class="datetime" id="datetime"></div>
 
   <h2>Jay Patel - Spoken Word Counter</h2>
-
-  <!-- Hyperlink to track.html -->
-  <a class="track-link" href="track.html" target="_blank">View Daily Track →</a>
 
   <label>Enter Word to Count</label>
   <input id="target" type="text" value="Radha">
@@ -114,6 +112,9 @@
   <div class="totals" id="totals">
     Today’s Total: 0 &nbsp;&nbsp;|&nbsp;&nbsp; Yesterday’s Total: 0
   </div>
+
+  <!-- Hyperlink to track.html at very bottom -->
+  <a class="track-link" href="track.html" target="_blank">View Daily Track →</a>
 </div>
 
 <script>
@@ -139,6 +140,7 @@ let restarting = false;
 let detectedLanguage = null;
 let lastFinalTranscript = "";
 let wordQueue = 0;
+let queueTimer = null;
 const QUEUE_DEBOUNCE_MS = 150;
 
 /* =========================
