@@ -84,171 +84,166 @@
 </div>
 
 <script>
-/* ===================== CORE STATE ===================== */
+/* ================= STATE ================= */
 let count = 0;
 let recognition;
 let listening = false;
 let restarting = false;
 let detectedLanguage = null;
+let lastFinalText = "";
+let lastCountTime = 0;
 
-let lastFinalTranscript = "";
-
-/* ===================== ELEMENTS ===================== */
+/* ================= ELEMENTS ================= */
 const countEl = document.getElementById("count");
 const targetEl = document.getElementById("target");
 const maxEl = document.getElementById("max");
 const langSelect = document.getElementById("langSelect");
 const statusEl = document.getElementById("status");
 
-/* ===================== SAFARI CHECK ===================== */
+/* ================= BROWSER ================= */
 const ua = navigator.userAgent.toLowerCase();
 const isSafari = ua.includes("safari") && !ua.includes("chrome") && !ua.includes("crios");
 
-/* ===================== AUDIO PEAK DETECTION ===================== */
-let audioCtx, analyser, micSource;
-let lastPeakTime = 0;
-const PEAK_GAP_MS = 180;
-let peakCountBuffer = 0;
+/* ================= AUDIO (Safari only) ================= */
+let audioCtx, analyser, mic;
+let peakBuffer = 0;
+let lastPeak = 0;
 
-async function startAudioAnalysis() {
+async function startAudio() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    micSource = audioCtx.createMediaStreamSource(stream);
+    mic = audioCtx.createMediaStreamSource(stream);
     analyser = audioCtx.createAnalyser();
     analyser.fftSize = 512;
-    micSource.connect(analyser);
+    mic.connect(analyser);
     detectPeaks();
 }
 
 function detectPeaks() {
+    if (!isSafari) return;
     const data = new Uint8Array(analyser.frequencyBinCount);
     analyser.getByteFrequencyData(data);
-    const energy = data.reduce((a, b) => a + b, 0) / data.length;
-
+    const energy = data.reduce((a,b)=>a+b,0)/data.length;
     const now = Date.now();
-    if (energy > 55 && now - lastPeakTime > PEAK_GAP_MS) {
-        peakCountBuffer++;
-        lastPeakTime = now;
+    if (energy > 55 && now - lastPeak > 180) {
+        peakBuffer++;
+        lastPeak = now;
     }
     requestAnimationFrame(detectPeaks);
 }
 
-/* ===================== NORMALIZATION ===================== */
-function normalizeWord(word) {
-    return word
+/* ================= NORMALIZATION ================= */
+function normalize(str) {
+    return str
         .toLowerCase()
-        .replace(/(.)\1+/g, "$1")
-        .replace(/[^a-z\u0900-\u097F\u0A80-\u0AFF]/g, "");
+        .replace(/(.)\1+/g,"$1")
+        .replace(/[^a-z\u0900-\u097F\u0A80-\u0AFF]/g,"");
 }
 
-/* ===================== FUZZY MATCH ===================== */
-function isTargetMatch(spoken, target) {
-    return normalizeWord(spoken).includes(normalizeWord(target));
-}
-
-/* ===================== UPDATE DISPLAY ===================== */
-function updateCount() {
-    const max = Math.min(50000, Number(maxEl.value));
-    if (count > max) count = max;
-    countEl.textContent = count;
-}
-
-/* ===================== RESET ===================== */
-function resetCounter() {
-    count = 0;
-    peakCountBuffer = 0;
-    lastFinalTranscript = "";
-    updateCount();
-    statusEl.textContent = "Status: counter reset";
-}
-
-/* ===================== LANGUAGE DETECTION ===================== */
-function detectLanguage(text) {
-    if (isSafari) return null;
+/* ================= LANGUAGE DETECT ================= */
+function detectLang(text) {
     if (/[\u0A80-\u0AFF]/.test(text)) return "gu-IN";
     if (/[\u0900-\u097F]/.test(text)) return "hi-IN";
     return "en-US";
 }
 
-/* ===================== SPEECH RECOGNITION ===================== */
+/* ================= UPDATE COUNT ================= */
+function updateCount(n) {
+    count += n;
+    const max = Math.min(50000, Number(maxEl.value));
+    if (count > max) count = max;
+    countEl.textContent = count;
+}
+
+/* ================= SPEECH ================= */
 function createRecognition(lang) {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
-        statusEl.textContent = "Speech recognition not supported";
+        statusEl.textContent = "SpeechRecognition not supported";
         return null;
     }
 
-    const recog = new SR();
-    recog.continuous = true;
-    recog.interimResults = true;
-    recog.lang = lang;
+    const r = new SR();
+    r.continuous = true;
+    r.interimResults = true;
+    r.lang = lang;
 
-    recog.onstart = () => {
+    r.onstart = () => {
         listening = true;
-        statusEl.textContent = "Listening (" + lang + ")";
+        statusEl.textContent = "Listening ("+lang+")";
     };
 
-    recog.onend = () => {
+    r.onend = () => {
         listening = false;
         if (isSafari && !restarting) safeRestart();
     };
 
-    recog.onerror = () => {
+    r.onerror = () => {
         if (isSafari) safeRestart();
     };
 
-    recog.onresult = (event) => {
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-            const res = event.results[i];
+    r.onresult = (e) => {
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+            const res = e.results[i];
             if (!res.isFinal) continue;
 
             const text = res[0].transcript.trim();
+            const delta = text.replace(lastFinalText,"").trim();
+            lastFinalText = text;
 
-            if (!isSafari && langSelect.value === "auto" && !detectedLanguage) {
-                const langDetected = detectLanguage(text);
-                if (langDetected && langDetected !== recog.lang) {
+            if (!isSafari && langSelect.value==="auto" && !detectedLanguage) {
+                const d = detectLang(text);
+                if (d && d !== r.lang) {
                     restarting = true;
-                    recog.stop();
-                    setTimeout(() => {
-                        recognition = createRecognition(langDetected);
+                    r.stop();
+                    setTimeout(()=>{
+                        recognition = createRecognition(d);
                         recognition.start();
-                        restarting = false;
-                    }, 300);
+                        restarting=false;
+                    },300);
                     return;
                 }
             }
 
-            const delta = text.replace(lastFinalTranscript, "").trim();
-            lastFinalTranscript = text;
+            const normDelta = normalize(delta);
+            const normTarget = normalize(targetEl.value);
 
-            if (isTargetMatch(delta, targetEl.value)) {
-                count += Math.max(1, peakCountBuffer || 1);
-                peakCountBuffer = 0;
-                updateCount();
+            if (normDelta.includes(normTarget)) {
+                if (isSafari) {
+                    updateCount(Math.max(1, peakBuffer));
+                    peakBuffer = 0;
+                } else {
+                    const now = Date.now();
+                    if (now - lastCountTime > 120) {
+                        updateCount(1);
+                        lastCountTime = now;
+                    }
+                }
             }
         }
     };
 
-    return recog;
+    return r;
 }
 
-/* ===================== SAFARI RESTART ===================== */
+/* ================= SAFARI RESTART ================= */
 function safeRestart() {
     if (!recognition || listening) return;
     restarting = true;
-    setTimeout(() => {
-        try { recognition.start(); } catch(e){}
-        restarting = false;
-    }, 300);
+    setTimeout(()=>{
+        try{ recognition.start(); }catch{}
+        restarting=false;
+    },300);
 }
 
-/* ===================== BUTTONS ===================== */
+/* ================= BUTTONS ================= */
 document.getElementById("startBtn").onclick = async () => {
-    const lang = (!isSafari && langSelect.value === "auto") ? "en-US" : langSelect.value;
+    const lang = (!isSafari && langSelect.value==="auto") ? "en-US" : langSelect.value;
     detectedLanguage = null;
-    lastFinalTranscript = "";
-    peakCountBuffer = 0;
-    await startAudioAnalysis();
+    lastFinalText = "";
+    peakBuffer = 0;
+    lastCountTime = 0;
+    if (isSafari) await startAudio();
     recognition = createRecognition(lang);
     recognition && recognition.start();
 };
@@ -257,13 +252,18 @@ document.getElementById("stopBtn").onclick = () => {
     if (recognition && listening) recognition.stop();
 };
 
-document.getElementById("resetBtn").onclick = resetCounter;
+document.getElementById("resetBtn").onclick = () => {
+    count = 0;
+    lastFinalText = "";
+    peakBuffer = 0;
+    updateCount(0);
+    statusEl.textContent = "Status: counter reset";
+};
 
-/* ===================== INIT ===================== */
-updateCount();
-
+/* ================= INIT ================= */
+countEl.textContent = count;
 if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("service-worker.js").catch(() => {});
+    navigator.serviceWorker.register("service-worker.js").catch(()=>{});
 }
 </script>
 </body>
