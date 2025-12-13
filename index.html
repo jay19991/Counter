@@ -84,146 +84,157 @@
 </div>
 
 <script>
+/* ===================== CORE STATE ===================== */
 let count = 0;
 let recognition;
 let listening = false;
-let detectedLanguage = null;
 let restarting = false;
+let detectedLanguage = null;
 
-// Noise suppression
-const CONFIDENCE_THRESHOLD = 0.6; 
+let lastFinalTranscript = "";
 
-// Queue system for rapid speech
-let wordQueue = 0;
-let queueTimer = null;
-const QUEUE_DEBOUNCE_MS = 300;
-
+/* ===================== ELEMENTS ===================== */
 const countEl = document.getElementById("count");
 const targetEl = document.getElementById("target");
 const maxEl = document.getElementById("max");
 const langSelect = document.getElementById("langSelect");
 const statusEl = document.getElementById("status");
 
-// Safari detection
+/* ===================== SAFARI CHECK ===================== */
 const ua = navigator.userAgent.toLowerCase();
-const isSafari = (ua.includes("safari") && !ua.includes("chrome") && !ua.includes("crios") && !ua.includes("android"));
+const isSafari = ua.includes("safari") && !ua.includes("chrome") && !ua.includes("crios");
 
-// Update display
-function updateCountDisplay() {
+/* ===================== AUDIO PEAK DETECTION ===================== */
+let audioCtx, analyser, micSource;
+let lastPeakTime = 0;
+const PEAK_GAP_MS = 180;
+let peakCountBuffer = 0;
+
+async function startAudioAnalysis() {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    micSource = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 512;
+    micSource.connect(analyser);
+    detectPeaks();
+}
+
+function detectPeaks() {
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(data);
+    const energy = data.reduce((a, b) => a + b, 0) / data.length;
+
+    const now = Date.now();
+    if (energy > 55 && now - lastPeakTime > PEAK_GAP_MS) {
+        peakCountBuffer++;
+        lastPeakTime = now;
+    }
+    requestAnimationFrame(detectPeaks);
+}
+
+/* ===================== NORMALIZATION ===================== */
+function normalizeWord(word) {
+    return word
+        .toLowerCase()
+        .replace(/(.)\1+/g, "$1")
+        .replace(/[^a-z\u0900-\u097F\u0A80-\u0AFF]/g, "");
+}
+
+/* ===================== FUZZY MATCH ===================== */
+function isTargetMatch(spoken, target) {
+    return normalizeWord(spoken).includes(normalizeWord(target));
+}
+
+/* ===================== UPDATE DISPLAY ===================== */
+function updateCount() {
+    const max = Math.min(50000, Number(maxEl.value));
+    if (count > max) count = max;
     countEl.textContent = count;
 }
 
-// Reset counter
+/* ===================== RESET ===================== */
 function resetCounter() {
     count = 0;
-    wordQueue = 0;
-    detectedLanguage = null;
-    if (queueTimer) clearTimeout(queueTimer);
-    updateCountDisplay();
+    peakCountBuffer = 0;
+    lastFinalTranscript = "";
+    updateCount();
     statusEl.textContent = "Status: counter reset";
 }
 
-// Detect language from text
-function detectLanguageFromText(text) {
+/* ===================== LANGUAGE DETECTION ===================== */
+function detectLanguage(text) {
     if (isSafari) return null;
     if (/[\u0A80-\u0AFF]/.test(text)) return "gu-IN";
     if (/[\u0900-\u097F]/.test(text)) return "hi-IN";
     return "en-US";
 }
 
-// Count occurrences in transcript
-function countOccurrences(text, target) {
-    text = text.toLowerCase();
-    target = target.toLowerCase();
-    const regex = new RegExp(`\\b${target}\\b`, "g");
-    const matches = text.match(regex);
-    return matches ? matches.length : 0;
-}
-
-// Flush the queue
-function flushQueue() {
-    if (wordQueue > 0) {
-        const maxLimit = Math.min(50000, Number(maxEl.value));
-        count += wordQueue;
-        if (count > maxLimit) count = maxLimit;
-        updateCountDisplay();
-        wordQueue = 0;
-    }
-    queueTimer = null;
-}
-
-// Queue words detected
-function enqueueWords(number) {
-    wordQueue += number;
-    if (!queueTimer) {
-        queueTimer = setTimeout(flushQueue, QUEUE_DEBOUNCE_MS);
-    }
-}
-
-// Create speech recognition
-function createRecognition(lang = "en-US") {
+/* ===================== SPEECH RECOGNITION ===================== */
+function createRecognition(lang) {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
-        statusEl.textContent = "SpeechRecognition not supported on this browser";
+        statusEl.textContent = "Speech recognition not supported";
         return null;
     }
 
     const recog = new SR();
     recog.continuous = true;
-    recog.interimResults = true; 
+    recog.interimResults = true;
     recog.lang = lang;
 
     recog.onstart = () => {
         listening = true;
-        statusEl.textContent = "Listening (" + lang + ")…";
+        statusEl.textContent = "Listening (" + lang + ")";
     };
 
     recog.onend = () => {
         listening = false;
-        if (!restarting && isSafari) safeRestart();
-        if (!isSafari) statusEl.textContent = "Stopped";
+        if (isSafari && !restarting) safeRestart();
     };
 
-    recog.onerror = (e) => {
-        console.log("Recognition error:", e);
+    recog.onerror = () => {
         if (isSafari) safeRestart();
     };
 
     recog.onresult = (event) => {
-        const resultObj = event.results[event.results.length - 1][0];
-        if (resultObj.confidence < CONFIDENCE_THRESHOLD) return; 
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            const res = event.results[i];
+            if (!res.isFinal) continue;
 
-        const text = resultObj.transcript;
-        const target = targetEl.value;
+            const text = res[0].transcript.trim();
 
-        // Chrome auto language detection
-        if (!isSafari && langSelect.value === "auto" && !detectedLanguage) {
-            detectedLanguage = detectLanguageFromText(text);
-            if (detectedLanguage && detectedLanguage !== recog.lang) {
-                restarting = true;
-                recog.stop();
-                setTimeout(() => {
-                    recognition = createRecognition(detectedLanguage);
-                    recognition.start();
-                    restarting = false;
-                }, 250);
-                return;
+            if (!isSafari && langSelect.value === "auto" && !detectedLanguage) {
+                const langDetected = detectLanguage(text);
+                if (langDetected && langDetected !== recog.lang) {
+                    restarting = true;
+                    recog.stop();
+                    setTimeout(() => {
+                        recognition = createRecognition(langDetected);
+                        recognition.start();
+                        restarting = false;
+                    }, 300);
+                    return;
+                }
             }
-        }
 
-        // Count all occurrences and add to queue
-        const matches = countOccurrences(text, target);
-        if (matches > 0) {
-            enqueueWords(matches);
+            const delta = text.replace(lastFinalTranscript, "").trim();
+            lastFinalTranscript = text;
+
+            if (isTargetMatch(delta, targetEl.value)) {
+                count += Math.max(1, peakCountBuffer || 1);
+                peakCountBuffer = 0;
+                updateCount();
+            }
         }
     };
 
     return recog;
 }
 
-// Safari safe restart
+/* ===================== SAFARI RESTART ===================== */
 function safeRestart() {
-    if (!recognition || listening || !isSafari) return;
+    if (!recognition || listening) return;
     restarting = true;
     setTimeout(() => {
         try { recognition.start(); } catch(e){}
@@ -231,32 +242,28 @@ function safeRestart() {
     }, 300);
 }
 
-// Start button
-document.getElementById("startBtn").onclick = () => {
-    const selectedLang = langSelect.value;
-    let lang;
-    if (!isSafari && selectedLang === "auto") lang = "en-US";
-    else lang = selectedLang === "auto" ? "en-US" : selectedLang;
-
+/* ===================== BUTTONS ===================== */
+document.getElementById("startBtn").onclick = async () => {
+    const lang = (!isSafari && langSelect.value === "auto") ? "en-US" : langSelect.value;
     detectedLanguage = null;
+    lastFinalTranscript = "";
+    peakCountBuffer = 0;
+    await startAudioAnalysis();
     recognition = createRecognition(lang);
-    if (recognition) recognition.start();
+    recognition && recognition.start();
 };
 
-// Stop button
 document.getElementById("stopBtn").onclick = () => {
     if (recognition && listening) recognition.stop();
 };
 
-// Reset button
 document.getElementById("resetBtn").onclick = resetCounter;
 
-// Initialize display
-updateCountDisplay();
+/* ===================== INIT ===================== */
+updateCount();
 
-// Register service worker for offline caching
 if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("service-worker.js").catch(err => console.log(err));
+    navigator.serviceWorker.register("service-worker.js").catch(() => {});
 }
 </script>
 </body>
