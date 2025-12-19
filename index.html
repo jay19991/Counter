@@ -11,7 +11,7 @@
 <title>JP Word Counter</title>
 
 <style>
-/* --- YOUR ORIGINAL STYLES (UNCHANGED) --- */
+/* -------- YOUR ORIGINAL STYLES (UNCHANGED) -------- */
 body {
   font-family: Arial, sans-serif;
   background: #111827;
@@ -110,6 +110,7 @@ let yesterdayTotal = Number(localStorage.getItem("yesterdayTotal") || 0);
 let recognition = null;
 let listening = false;
 let userPaused = true;
+let lastResultTime = 0;
 
 /* ---------- DOM ---------- */
 const countEl = document.getElementById("count");
@@ -132,6 +133,14 @@ function updateDisplay() {
 }
 updateDisplay();
 
+/* ---------- UTIL ---------- */
+function countOccurrences(text, word) {
+  text = text.toLowerCase();
+  word = word.toLowerCase().trim();
+  if (!word) return 0;
+  return text.split(word).length - 1;
+}
+
 /* ---------- SPEECH RECOGNITION ---------- */
 function initRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -142,7 +151,7 @@ function initRecognition() {
 
   recognition = new SR();
   recognition.continuous = true;
-  recognition.interimResults = false;
+  recognition.interimResults = true;
   recognition.lang = langSelect.value === "auto" ? "en-US" : langSelect.value;
 
   recognition.onstart = () => {
@@ -152,29 +161,47 @@ function initRecognition() {
 
   recognition.onend = () => {
     listening = false;
-    if (!userPaused) recognition.start();
-    else statusEl.textContent = "Status: idle";
+    if (!userPaused) {
+      setTimeout(() => {
+        try { recognition.start(); } catch(e){}
+      }, 100);
+    } else {
+      statusEl.textContent = "Status: idle";
+    }
+  };
+
+  recognition.onerror = () => {
+    if (!userPaused) recognition.stop();
   };
 
   recognition.onresult = (event) => {
+    const now = Date.now();
+    let transcript = "";
+
     for (let i = event.resultIndex; i < event.results.length; i++) {
-      if (!event.results[i].isFinal) continue;
-
-      const text = event.results[i][0].transcript.toLowerCase();
-      const target = targetEl.value.toLowerCase();
-      const matches = text.match(new RegExp(`\\b${target}\\b`, "g")) || [];
-
-      if (matches.length) {
-        const maxLimit = Number(maxEl.value);
-        count += matches.length;
-        todayTotal += matches.length;
-
-        if (count > maxLimit) count = maxLimit;
-
-        localStorage.setItem("todayTotal", todayTotal);
-        updateDisplay();
-      }
+      transcript += event.results[i][0].transcript;
     }
+
+    const target = targetEl.value;
+    let matches = countOccurrences(transcript, target);
+
+    // Fast-chant safety net
+    if (matches === 0 && now - lastResultTime < 700) {
+      matches = 1;
+    }
+
+    if (matches > 0) {
+      const maxLimit = Number(maxEl.value);
+      count += matches;
+      todayTotal += matches;
+
+      if (count > maxLimit) count = maxLimit;
+
+      localStorage.setItem("todayTotal", todayTotal);
+      updateDisplay();
+    }
+
+    lastResultTime = now;
   };
 }
 
@@ -192,10 +219,8 @@ document.getElementById("pauseBtn").onclick = () => {
 };
 
 document.getElementById("resetBtn").onclick = () => {
-  if (recognition && listening) {
-    userPaused = true;
-    recognition.stop();
-  }
+  userPaused = true;
+  if (recognition && listening) recognition.stop();
   count = 0;
   updateDisplay();
   statusEl.textContent = "Status: counter reset";
