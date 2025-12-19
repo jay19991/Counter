@@ -11,7 +11,7 @@
 <title>JP Word Counter</title>
 
 <style>
-/* ======= STYLE CODE UNCHANGED ======= */
+/* === UNCHANGED STYLE CODE === */
 body {
   font-family: Arial, sans-serif;
   background: #111827;
@@ -109,9 +109,8 @@ button.reset { background: #dc2626; }
 </div>
 
 <script>
-/* =========================
-   STATE & STORAGE
-========================= */
+/* ================= CORE LOGIC ================= */
+
 let recognition = null;
 let isListening = false;
 let userPaused = false;
@@ -120,52 +119,32 @@ let count = 0;
 let todayTotal = Number(localStorage.getItem("todayTotal") || 0);
 let yesterdayTotal = Number(localStorage.getItem("yesterdayTotal") || 0);
 
+/* DOM */
 const countEl = document.getElementById("count");
+const targetEl = document.getElementById("target");
+const maxEl = document.getElementById("max");
+const langSelect = document.getElementById("langSelect");
 const statusEl = document.getElementById("status");
 const totalsEl = document.getElementById("totals");
-const targetEl = document.getElementById("target");
-const langSelect = document.getElementById("langSelect");
-const maxEl = document.getElementById("max");
-const dateTimeEl = document.getElementById("currentDateTime");
+const currentDateTimeEl = document.getElementById("currentDateTime");
 
-/* Safari detection */
+/* Safari detect */
 const ua = navigator.userAgent.toLowerCase();
 const isSafari = ua.includes("safari") && !ua.includes("chrome") && !ua.includes("crios");
 
-/* =========================
-   UI HELPERS
-========================= */
-function updateUI() {
+/* UI updates */
+function updateDisplay() {
   countEl.textContent = count;
   totalsEl.textContent = `Today's Total: ${todayTotal} & Yesterday's Total: ${yesterdayTotal}`;
 }
+updateDisplay();
 
+/* Date/time */
 setInterval(() => {
-  dateTimeEl.textContent = new Date().toLocaleString();
+  currentDateTimeEl.textContent = new Date().toLocaleString();
 }, 1000);
 
-updateUI();
-
-/* =========================
-   DAY CHANGE HANDLING
-========================= */
-(function checkDayChange(){
-  const today = new Date().toDateString();
-  const lastDay = localStorage.getItem("lastSavedDay");
-  if (lastDay !== today) {
-    yesterdayTotal = todayTotal;
-    todayTotal = 0;
-    count = 0;
-    localStorage.setItem("yesterdayTotal", yesterdayTotal);
-    localStorage.setItem("todayTotal", todayTotal);
-    localStorage.setItem("lastSavedDay", today);
-    updateUI();
-  }
-})();
-
-/* =========================
-   SPEECH RECOGNITION
-========================= */
+/* Create recognition */
 function createRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
@@ -174,39 +153,13 @@ function createRecognition() {
   }
 
   const r = new SR();
-  r.lang = langSelect.value;
+  r.continuous = true;
   r.interimResults = false;
-  r.continuous = !isSafari; // 🔑 Safari-safe
+  r.lang = langSelect.value;
 
   r.onstart = () => {
     isListening = true;
     statusEl.textContent = "Status: Listening";
-  };
-
-  r.onresult = (event) => {
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      if (!event.results[i].isFinal) continue;
-
-      const words = event.results[i][0].transcript
-        .toLowerCase()
-        .trim()
-        .split(/\s+/);
-
-      const target = targetEl.value.toLowerCase();
-      const matches = words.filter(w => w === target).length;
-
-      if (matches > 0) {
-        count += matches;
-        todayTotal += matches;
-
-        const maxLimit = Number(maxEl.value);
-        if (count > maxLimit) count = maxLimit;
-        if (todayTotal > 50000) todayTotal = 50000;
-
-        localStorage.setItem("todayTotal", todayTotal);
-        updateUI();
-      }
-    }
   };
 
   r.onend = () => {
@@ -220,6 +173,32 @@ function createRecognition() {
     }
   };
 
+  r.onresult = (event) => {
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      if (!event.results[i].isFinal) continue;
+
+      const spoken = event.results[i][0].transcript
+        .toLowerCase()
+        .trim()
+        .split(/\s+/);
+
+      const target = targetEl.value.toLowerCase();
+      const matches = spoken.filter(w => w === target).length;
+
+      if (matches > 0) {
+        const maxLimit = Math.min(50000, Number(maxEl.value));
+        count += matches;
+        todayTotal += matches;
+
+        if (count > maxLimit) count = maxLimit;
+        if (todayTotal > 50000) todayTotal = 50000;
+
+        localStorage.setItem("todayTotal", todayTotal);
+        updateDisplay();
+      }
+    }
+  };
+
   r.onerror = () => {
     if (!userPaused) {
       try { r.stop(); } catch(e) {}
@@ -229,9 +208,7 @@ function createRecognition() {
   return r;
 }
 
-/* =========================
-   BUTTON HANDLERS
-========================= */
+/* Buttons */
 document.getElementById("startBtn").onclick = () => {
   if (isListening) return;
   userPaused = false;
@@ -241,21 +218,34 @@ document.getElementById("startBtn").onclick = () => {
 
 document.getElementById("pauseBtn").onclick = () => {
   userPaused = true;
-  recognition && recognition.stop();
+  if (recognition) recognition.stop();
 };
 
 document.getElementById("resetBtn").onclick = () => {
   if (!confirm("Alert! It will reset the counter!")) return;
   userPaused = true;
-  recognition && recognition.stop();
+  if (recognition) recognition.stop();
   count = 0;
-  updateUI();
+  updateDisplay();
   statusEl.textContent = "Status: counter reset";
 };
 
-/* =========================
-   SERVICE WORKER (OPTIONAL)
-========================= */
+/* Day change handling */
+(function checkDay() {
+  const today = new Date().toDateString();
+  const last = localStorage.getItem("lastSavedDay");
+  if (last !== today) {
+    yesterdayTotal = todayTotal;
+    todayTotal = 0;
+    localStorage.setItem("yesterdayTotal", yesterdayTotal);
+    localStorage.setItem("todayTotal", todayTotal);
+    localStorage.setItem("lastSavedDay", today);
+    count = 0;
+    updateDisplay();
+  }
+})();
+
+/* Service worker */
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("service-worker.js").catch(()=>{});
 }
