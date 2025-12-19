@@ -76,7 +76,6 @@ button.reset { background: #dc2626; }
 <body>
 <div class="container">
   <div class="date-time" id="currentDateTime"></div>
-
   <h2>Spoken Word Counter</h2>
 
   <label>Enter Word to Count</label>
@@ -90,7 +89,7 @@ button.reset { background: #dc2626; }
   </select>
 
   <label>Max Count (up to 50,000)</label>
-  <input id="max" type="number" value="50000" min="1" max="50000">
+  <input id="max" type="number" value="50000">
 
   <div class="count-display" id="count">0</div>
 
@@ -101,17 +100,11 @@ button.reset { background: #dc2626; }
   <div class="status" id="status">Status: idle</div>
   <div class="status" id="totals">Today's Total: 0 & Yesterday's Total: 0</div>
 
-  <div class="status" style="margin-top:20px;">
-    <a class="track-link" href="track.html" target="_blank">View Daily Track →</a>
-  </div>
-
   <div class="footer">© 2025 Jay Patel - All Rights Reserved</div>
 </div>
 
 <script>
-/* ================= CORE LOGIC ================= */
-
-let recognition = null;
+let recognition;
 let isListening = false;
 let userPaused = false;
 
@@ -119,136 +112,91 @@ let count = 0;
 let todayTotal = Number(localStorage.getItem("todayTotal") || 0);
 let yesterdayTotal = Number(localStorage.getItem("yesterdayTotal") || 0);
 
-/* DOM */
 const countEl = document.getElementById("count");
-const targetEl = document.getElementById("target");
-const maxEl = document.getElementById("max");
-const langSelect = document.getElementById("langSelect");
 const statusEl = document.getElementById("status");
 const totalsEl = document.getElementById("totals");
-const currentDateTimeEl = document.getElementById("currentDateTime");
+const targetEl = document.getElementById("target");
+const langSelect = document.getElementById("langSelect");
+const maxEl = document.getElementById("max");
 
-/* Safari detect */
 const ua = navigator.userAgent.toLowerCase();
 const isSafari = ua.includes("safari") && !ua.includes("chrome") && !ua.includes("crios");
 
-/* UI updates */
-function updateDisplay() {
+function updateUI() {
   countEl.textContent = count;
   totalsEl.textContent = `Today's Total: ${todayTotal} & Yesterday's Total: ${yesterdayTotal}`;
 }
-updateDisplay();
+updateUI();
 
-/* Date/time */
-setInterval(() => {
-  currentDateTimeEl.textContent = new Date().toLocaleString();
-}, 1000);
-
-/* Create recognition */
 function createRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) {
-    statusEl.textContent = "Speech recognition not supported";
-    return null;
-  }
-
   const r = new SR();
-  r.continuous = true;
-  r.interimResults = false;
+
   r.lang = langSelect.value;
+  r.interimResults = false;
+  r.continuous = !isSafari; // 🔑 CRITICAL FIX
 
   r.onstart = () => {
     isListening = true;
     statusEl.textContent = "Status: Listening";
   };
 
-  r.onend = () => {
-    isListening = false;
-    if (!userPaused) {
-      setTimeout(() => {
-        try { r.start(); } catch(e) {}
-      }, 300);
-    } else {
-      statusEl.textContent = "Status: idle";
-    }
-  };
-
   r.onresult = (event) => {
     for (let i = event.resultIndex; i < event.results.length; i++) {
       if (!event.results[i].isFinal) continue;
 
-      const spoken = event.results[i][0].transcript
+      const words = event.results[i][0].transcript
         .toLowerCase()
-        .trim()
         .split(/\s+/);
 
       const target = targetEl.value.toLowerCase();
-      const matches = spoken.filter(w => w === target).length;
+      const hits = words.filter(w => w === target).length;
 
-      if (matches > 0) {
-        const maxLimit = Math.min(50000, Number(maxEl.value));
-        count += matches;
-        todayTotal += matches;
+      if (hits > 0) {
+        count += hits;
+        todayTotal += hits;
 
+        const maxLimit = Number(maxEl.value);
         if (count > maxLimit) count = maxLimit;
-        if (todayTotal > 50000) todayTotal = 50000;
 
         localStorage.setItem("todayTotal", todayTotal);
-        updateDisplay();
+        updateUI();
       }
     }
   };
 
-  r.onerror = () => {
+  r.onend = () => {
+    isListening = false;
     if (!userPaused) {
-      try { r.stop(); } catch(e) {}
+      setTimeout(() => r.start(), 250); // 🔁 SAFARI RELISTEN
+    } else {
+      statusEl.textContent = "Status: idle";
     }
   };
 
   return r;
 }
 
-/* Buttons */
 document.getElementById("startBtn").onclick = () => {
   if (isListening) return;
   userPaused = false;
   recognition = createRecognition();
-  recognition && recognition.start();
+  recognition.start();
 };
 
 document.getElementById("pauseBtn").onclick = () => {
   userPaused = true;
-  if (recognition) recognition.stop();
+  recognition && recognition.stop();
 };
 
 document.getElementById("resetBtn").onclick = () => {
   if (!confirm("Alert! It will reset the counter!")) return;
   userPaused = true;
-  if (recognition) recognition.stop();
+  recognition && recognition.stop();
   count = 0;
-  updateDisplay();
+  updateUI();
   statusEl.textContent = "Status: counter reset";
 };
-
-/* Day change handling */
-(function checkDay() {
-  const today = new Date().toDateString();
-  const last = localStorage.getItem("lastSavedDay");
-  if (last !== today) {
-    yesterdayTotal = todayTotal;
-    todayTotal = 0;
-    localStorage.setItem("yesterdayTotal", yesterdayTotal);
-    localStorage.setItem("todayTotal", todayTotal);
-    localStorage.setItem("lastSavedDay", today);
-    count = 0;
-    updateDisplay();
-  }
-})();
-
-/* Service worker */
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("service-worker.js").catch(()=>{});
-}
 </script>
 </body>
 </html>
