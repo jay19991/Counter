@@ -11,7 +11,7 @@
 <title>JP Word Counter</title>
 
 <style>
-/* === UNCHANGED STYLE CODE === */
+/* ======= STYLE CODE UNCHANGED ======= */
 body {
   font-family: Arial, sans-serif;
   background: #111827;
@@ -76,6 +76,7 @@ button.reset { background: #dc2626; }
 <body>
 <div class="container">
   <div class="date-time" id="currentDateTime"></div>
+
   <h2>Spoken Word Counter</h2>
 
   <label>Enter Word to Count</label>
@@ -89,7 +90,7 @@ button.reset { background: #dc2626; }
   </select>
 
   <label>Max Count (up to 50,000)</label>
-  <input id="max" type="number" value="50000">
+  <input id="max" type="number" value="50000" min="1" max="50000">
 
   <div class="count-display" id="count">0</div>
 
@@ -100,11 +101,18 @@ button.reset { background: #dc2626; }
   <div class="status" id="status">Status: idle</div>
   <div class="status" id="totals">Today's Total: 0 & Yesterday's Total: 0</div>
 
+  <div class="status" style="margin-top:20px;">
+    <a class="track-link" href="track.html" target="_blank">View Daily Track →</a>
+  </div>
+
   <div class="footer">© 2025 Jay Patel - All Rights Reserved</div>
 </div>
 
 <script>
-let recognition;
+/* =========================
+   STATE & STORAGE
+========================= */
+let recognition = null;
 let isListening = false;
 let userPaused = false;
 
@@ -118,23 +126,57 @@ const totalsEl = document.getElementById("totals");
 const targetEl = document.getElementById("target");
 const langSelect = document.getElementById("langSelect");
 const maxEl = document.getElementById("max");
+const dateTimeEl = document.getElementById("currentDateTime");
 
+/* Safari detection */
 const ua = navigator.userAgent.toLowerCase();
 const isSafari = ua.includes("safari") && !ua.includes("chrome") && !ua.includes("crios");
 
+/* =========================
+   UI HELPERS
+========================= */
 function updateUI() {
   countEl.textContent = count;
   totalsEl.textContent = `Today's Total: ${todayTotal} & Yesterday's Total: ${yesterdayTotal}`;
 }
+
+setInterval(() => {
+  dateTimeEl.textContent = new Date().toLocaleString();
+}, 1000);
+
 updateUI();
 
+/* =========================
+   DAY CHANGE HANDLING
+========================= */
+(function checkDayChange(){
+  const today = new Date().toDateString();
+  const lastDay = localStorage.getItem("lastSavedDay");
+  if (lastDay !== today) {
+    yesterdayTotal = todayTotal;
+    todayTotal = 0;
+    count = 0;
+    localStorage.setItem("yesterdayTotal", yesterdayTotal);
+    localStorage.setItem("todayTotal", todayTotal);
+    localStorage.setItem("lastSavedDay", today);
+    updateUI();
+  }
+})();
+
+/* =========================
+   SPEECH RECOGNITION
+========================= */
 function createRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const r = new SR();
+  if (!SR) {
+    statusEl.textContent = "Speech recognition not supported";
+    return null;
+  }
 
+  const r = new SR();
   r.lang = langSelect.value;
   r.interimResults = false;
-  r.continuous = !isSafari; // 🔑 CRITICAL FIX
+  r.continuous = !isSafari; // 🔑 Safari-safe
 
   r.onstart = () => {
     isListening = true;
@@ -147,17 +189,19 @@ function createRecognition() {
 
       const words = event.results[i][0].transcript
         .toLowerCase()
+        .trim()
         .split(/\s+/);
 
       const target = targetEl.value.toLowerCase();
-      const hits = words.filter(w => w === target).length;
+      const matches = words.filter(w => w === target).length;
 
-      if (hits > 0) {
-        count += hits;
-        todayTotal += hits;
+      if (matches > 0) {
+        count += matches;
+        todayTotal += matches;
 
         const maxLimit = Number(maxEl.value);
         if (count > maxLimit) count = maxLimit;
+        if (todayTotal > 50000) todayTotal = 50000;
 
         localStorage.setItem("todayTotal", todayTotal);
         updateUI();
@@ -168,20 +212,31 @@ function createRecognition() {
   r.onend = () => {
     isListening = false;
     if (!userPaused) {
-      setTimeout(() => r.start(), 250); // 🔁 SAFARI RELISTEN
+      setTimeout(() => {
+        try { r.start(); } catch(e) {}
+      }, 300);
     } else {
       statusEl.textContent = "Status: idle";
+    }
+  };
+
+  r.onerror = () => {
+    if (!userPaused) {
+      try { r.stop(); } catch(e) {}
     }
   };
 
   return r;
 }
 
+/* =========================
+   BUTTON HANDLERS
+========================= */
 document.getElementById("startBtn").onclick = () => {
   if (isListening) return;
   userPaused = false;
   recognition = createRecognition();
-  recognition.start();
+  recognition && recognition.start();
 };
 
 document.getElementById("pauseBtn").onclick = () => {
@@ -197,6 +252,13 @@ document.getElementById("resetBtn").onclick = () => {
   updateUI();
   statusEl.textContent = "Status: counter reset";
 };
+
+/* =========================
+   SERVICE WORKER (OPTIONAL)
+========================= */
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("service-worker.js").catch(()=>{});
+}
 </script>
 </body>
 </html>
